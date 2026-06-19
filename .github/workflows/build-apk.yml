@@ -1,0 +1,44 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install SDK platform
+        run: yes | sdkmanager "platforms;android-36" "build-tools;36.0.0" || true
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --no-configuration-cache --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: onianime-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      # Publishes/updates a rolling "latest" release so the APK has a stable public
+      # download URL you can open on the TV (via a browser / Downloader app) and sideload.
+      - name: Publish rolling release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest debug build
+          prerelease: true
+          files: app/build/outputs/apk/debug/app-debug.apk
