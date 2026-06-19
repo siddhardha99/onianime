@@ -48,10 +48,14 @@ dependencies {
     implementation(libs.androidx.tv.foundation)
     implementation(libs.androidx.tv.material)
 
-    // Scraping core (Phase 0)
+    // Scraping + metadata core
     implementation(project(":data-allanime"))
+    implementation(project(":data-metadata"))
+    implementation(project(":data-catalog"))
     implementation(project(":core-config"))
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.coil.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
 
     // Media3 / ExoPlayer (Phase 1)
     implementation(libs.androidx.media3.exoplayer)
