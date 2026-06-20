@@ -3,6 +3,7 @@ package com.onianime.ui
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,8 +27,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -76,8 +81,14 @@ fun HomeScreen(vm: AppViewModel) {
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun RowSection(row: HomeRow, onClick: (AniListMedia) -> Unit) {
+    // Per-row focus memory: entering the row (from above/below) redirects to the last-focused tile
+    // (index 0 the first time), so vertical navigation lands predictably instead of on a
+    // geometry-shifted neighbour caused by the expanding tile.
+    val rowEntry = remember { FocusRequester() }
+    var lastIndex by remember { mutableStateOf(0) }
     Column {
         Text(
             row.title,
@@ -87,6 +98,9 @@ private fun RowSection(row: HomeRow, onClick: (AniListMedia) -> Unit) {
             modifier = Modifier.padding(start = 48.dp, bottom = 12.dp),
         )
         LazyRow(
+            modifier = Modifier
+                .focusGroup()
+                .focusProperties { enter = { rowEntry } },
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(horizontal = 48.dp, vertical = 10.dp),
         ) {
@@ -94,6 +108,9 @@ private fun RowSection(row: HomeRow, onClick: (AniListMedia) -> Unit) {
                 ExpandingCard(
                     media = media,
                     badge = badgeFor(row.title, index, media),
+                    modifier = Modifier
+                        .then(if (index == lastIndex) Modifier.focusRequester(rowEntry) else Modifier)
+                        .onFocusChanged { if (it.isFocused) lastIndex = index },
                     onClick = { onClick(media) },
                 )
             }
@@ -103,7 +120,7 @@ private fun RowSection(row: HomeRow, onClick: (AniListMedia) -> Unit) {
 
 /** Netflix-style tile: a poster that expands sideways on focus to reveal info inline. */
 @Composable
-private fun ExpandingCard(media: AniListMedia, badge: String?, onClick: () -> Unit) {
+private fun ExpandingCard(media: AniListMedia, badge: String?, modifier: Modifier = Modifier, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
 
@@ -121,7 +138,7 @@ private fun ExpandingCard(media: AniListMedia, badge: String?, onClick: () -> Un
     val width by animateDpAsState(if (expanded) CARD_EXPANDED_W else CARD_W, label = "cardWidth")
 
     Box(
-        Modifier.width(width).height(CARD_H)
+        modifier.width(width).height(CARD_H)
             .onFocusChanged { focused = it.isFocused }
             .clickable { onClick() }
             .focusCard(focused) // highlight ring is instant; only the expansion is debounced
