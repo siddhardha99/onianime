@@ -1,14 +1,17 @@
 package com.onianime.ui
 
+import android.app.Application
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.onianime.allanime.Stream
 import com.onianime.catalog.CatalogRepository
 import com.onianime.catalog.HomeRow
+import com.onianime.data.ShowProgress
+import com.onianime.data.WatchStore
 import com.onianime.metadata.AniListMedia
 import com.onianime.metadata.SkipInterval
 import kotlinx.coroutines.Job
@@ -18,21 +21,27 @@ enum class Route { Home, Search, Detail, Player, MyList }
 
 /**
  * Single source of truth for the UI. Holds navigation + the data each screen needs, loading from
- * [CatalogRepository] (AniList browse/search + allanime stream resolution).
+ * [CatalogRepository] (browse/stream) and persisting watch progress + My List via [WatchStore].
  */
 class AppViewModel(
+    app: Application,
     private val repo: CatalogRepository,
-) : ViewModel() {
+) : AndroidViewModel(app) {
 
-    // Real no-arg constructor so androidx viewModel() can instantiate it.
-    constructor() : this(CatalogRepository())
+    // Real Application constructor so androidx viewModel() can instantiate it.
+    constructor(app: Application) : this(app, CatalogRepository())
+
+    private val store = WatchStore(app)
 
     var route by mutableStateOf(Route.Home)
         private set
 
-    // Home
+    // Home / persisted
     val homeRows = mutableStateListOf<HomeRow>()
     val continueWatching = mutableStateListOf<AniListMedia>()
+    val myList = mutableStateListOf<AniListMedia>()
+    var progressByShow by mutableStateOf<Map<Int, ShowProgress>>(emptyMap())
+        private set
     var homeLoading by mutableStateOf(true)
         private set
 
@@ -54,6 +63,7 @@ class AppViewModel(
         private set
 
     // Player
+    private var playerMedia: AniListMedia? = null
     var playerStream by mutableStateOf<Stream?>(null)
         private set
     var playerIndex by mutableStateOf(0)
@@ -66,6 +76,16 @@ class AppViewModel(
 
     init {
         loadHome()
+        viewModelScope.launch {
+            store.progress.collect { list ->
+                progressByShow = list.associateBy { it.media.id }
+                continueWatching.clear()
+                continueWatching.addAll(list.map { it.media })
+            }
+        }
+        viewModelScope.launch {
+            store.myList.collect { list -> myList.clear(); myList.addAll(list) }
+        }
     }
 
     fun loadHome() {
@@ -121,16 +141,53 @@ class AppViewModel(
         }
     }
 
+    // ---- My List ----
+
+    fun isInMyList(id: Int): Boolean = myList.any { it.id == id }
+
+    fun toggleMyList() {
+        val m = detailMedia ?: return
+        viewModelScope.launch {
+            val added = store.toggleMyList(m)
+            toast = if (added) "Added to My List" else "Removed from My List"
+        }
+    }
+
+    // ---- Progress / resume ----
+
+    fun progressFor(showId: Int): ShowProgress? = progressByShow[showId]
+
+    fun episodeFraction(showId: Int, episodeIndex: Int): Float =
+        progressByShow[showId]?.episodes?.get(episodeIndex)?.fraction ?: 0f
+
+    /** Saved resume position (ms) for the currently-playing episode; 0 if none or finished. */
+    fun resumePositionMs(): Long {
+        val media = playerMedia ?: return 0
+        val ep = progressByShow[media.id]?.episodes?.get(playerIndex) ?: return 0
+        return if (ep.finished) 0 else ep.positionMs
+    }
+
+    fun saveProgress(positionMs: Long, durationMs: Long) {
+        val media = playerMedia ?: return
+        val label = episodes.getOrNull(playerIndex) ?: return
+        viewModelScope.launch { store.saveProgress(media, playerIndex, label, positionMs, durationMs) }
+    }
+
+    // ---- Playback ----
+
     /** Resolve and start playback of [index] in the current detail's episode list. */
     fun playEpisode(index: Int) {
         val media = detailMedia ?: return
         val id = detailAllAnimeId ?: return
         if (index !in episodes.indices) return
+        playerMedia = media
         playerIndex = index
         playerStream = null
         playerStatus = "Resolving stream…"
         route = Route.Player
-        if (continueWatching.none { it.id == media.id }) continueWatching.add(0, media)
+
+        // Register the show in Continue Watching without clobbering saved episode positions.
+        viewModelScope.launch { store.markStarted(media, index, episodes[index]) }
 
         // AniSkip op/ed times (needs MAL id + an integer episode number)
         skipIntervals.clear()

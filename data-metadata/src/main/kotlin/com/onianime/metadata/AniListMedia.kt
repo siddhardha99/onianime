@@ -1,6 +1,9 @@
 package com.onianime.metadata
 
+import kotlinx.serialization.Serializable
+
 /** A show as described by AniList — the source of real titles, posters, synopsis and MAL id. */
+@Serializable
 data class AniListMedia(
     val id: Int,
     val idMal: Int?,

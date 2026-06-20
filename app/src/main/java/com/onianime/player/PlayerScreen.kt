@@ -71,6 +71,8 @@ fun PlayerScreen(vm: AppViewModel, userAgent: String) {
             ExoPlayer.Builder(context).setMediaSourceFactory(DefaultMediaSourceFactory(factory)).build().apply {
                 setMediaItem(MediaItem.fromUri(stream.url))
                 prepare()
+                val resume = vm.resumePositionMs()
+                if (resume > 0) seekTo(resume) // continue where the user left off
                 playWhenReady = true
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(state: Int) {
@@ -79,12 +81,19 @@ fun PlayerScreen(vm: AppViewModel, userAgent: String) {
                 })
             }
         }
-        DisposableEffect(stream.url) { onDispose { exoPlayer.release() } }
+        DisposableEffect(stream.url) {
+            onDispose {
+                if (exoPlayer.duration > 0) vm.saveProgress(exoPlayer.currentPosition, exoPlayer.duration)
+                exoPlayer.release()
+            }
+        }
         LaunchedEffect(exoPlayer) {
+            var tick = 0
             while (true) {
                 position = exoPlayer.currentPosition
                 duration = exoPlayer.duration.coerceAtLeast(0L)
                 playing = exoPlayer.isPlaying
+                if (++tick % 10 == 0 && playing && duration > 0) vm.saveProgress(position, duration)
                 delay(500)
             }
         }
