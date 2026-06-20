@@ -1,5 +1,6 @@
 package com.onianime.ui
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -8,19 +9,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,6 +40,11 @@ import coil.compose.AsyncImage
 import com.onianime.catalog.HomeRow
 import com.onianime.metadata.AniListMedia
 import com.onianime.ui.theme.Oni
+import com.onianime.ui.theme.focusCard
+
+private val CARD_W = 200.dp
+private val CARD_EXPANDED_W = 480.dp
+private val CARD_H = 286.dp
 
 @Composable
 fun HomeScreen(vm: AppViewModel) {
@@ -51,123 +54,111 @@ fun HomeScreen(vm: AppViewModel) {
             addAll(vm.homeRows)
         }
     }
-    var hero by remember { mutableStateOf<AniListMedia?>(null) }
-    if (hero == null) hero = rows.firstOrNull()?.items?.firstOrNull()
 
-    Row(Modifier.fillMaxSize().background(Oni.Bg)) {
-        NavRail(vm)
-        Box(Modifier.fillMaxSize()) {
-            hero?.let { HeroBackdrop(it) }
-            hero?.let { HeroText(it, vm) }
-
-            if (rows.isEmpty()) {
-                Text(
-                    if (vm.homeLoading) "Loading…" else "Nothing to show",
-                    color = Oni.Muted, fontSize = 18.sp,
-                    modifier = Modifier.align(Alignment.Center),
-                )
-            } else {
-                Column(
-                    Modifier.align(Alignment.BottomStart).fillMaxWidth().height(560.dp)
-                        .verticalScroll(rememberScrollState()).padding(bottom = 22.dp),
-                    verticalArrangement = Arrangement.spacedBy(26.dp),
-                ) {
-                    rows.forEachIndexed { i, row ->
-                        RowSection(
-                            row = row,
-                            landscape = row.title == "Continue Watching",
-                            onFocusedMedia = { hero = it },
-                            onClick = { vm.openDetail(it) },
-                        )
-                    }
-                }
-            }
+    if (rows.isEmpty()) {
+        Box(Modifier.fillMaxSize().background(Oni.Bg), contentAlignment = Alignment.Center) {
+            Text(if (vm.homeLoading) "Loading…" else "Nothing to show", color = Oni.Muted, fontSize = 18.sp)
         }
+        return
     }
-}
 
-@Composable
-private fun NavRail(vm: AppViewModel) {
-    val items = listOf("⌕" to "Search", "⌂" to "Home", "＋" to "My List", "⚙" to "Settings")
-    Column(
-        Modifier.width(104.dp).fillMaxHeight()
-            .background(Brush.horizontalGradient(listOf(Oni.Bg.copy(alpha = 0.96f), Color.Transparent)))
-            .padding(vertical = 18.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+    LazyColumn(
+        Modifier.fillMaxSize().background(Oni.Bg),
+        contentPadding = PaddingValues(top = 10.dp, bottom = 48.dp),
+        verticalArrangement = Arrangement.spacedBy(30.dp),
     ) {
-        items.forEach { (icon, label) ->
-            var focused by remember { mutableStateOf(false) }
-            Column(
-                Modifier.size(74.dp, 70.dp)
-                    .onFocusChanged { focused = it.isFocused }
-                    .clickable {
-                        when (label) {
-                            "Search" -> vm.goSearch()
-                            "Home" -> vm.goHome()
-                            else -> vm.toast = "$label — coming soon"
-                        }
-                    }
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(if (focused) Oni.Accent.copy(alpha = 0.2f) else Color.Transparent),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(icon, color = if (focused) Oni.White else Oni.Muted, fontSize = 25.sp)
-                Text(label, color = if (focused) Oni.White else Oni.Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-            }
+        items(rows, key = { it.title }) { row ->
+            RowSection(row) { vm.openDetail(it) }
         }
     }
 }
 
 @Composable
-private fun HeroBackdrop(media: AniListMedia) {
-    Box(Modifier.fillMaxWidth().height(560.dp)) {
+private fun RowSection(row: HomeRow, onClick: (AniListMedia) -> Unit) {
+    Column {
+        Text(
+            row.title,
+            color = Oni.Text,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(start = 48.dp, bottom = 12.dp),
+        )
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(horizontal = 48.dp, vertical = 10.dp),
+        ) {
+            itemsIndexed(row.items, key = { _, m -> m.id }) { index, media ->
+                ExpandingCard(
+                    media = media,
+                    badge = badgeFor(row.title, index, media),
+                    onClick = { onClick(media) },
+                )
+            }
+        }
+    }
+}
+
+/** Netflix-style tile: a poster that expands sideways on focus to reveal info inline. */
+@Composable
+private fun ExpandingCard(media: AniListMedia, badge: String?, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val width by animateDpAsState(if (focused) CARD_EXPANDED_W else CARD_W, label = "cardWidth")
+
+    Box(
+        Modifier.width(width).height(CARD_H)
+            .onFocusChanged { focused = it.isFocused }
+            .clickable { onClick() }
+            .focusCard(focused)
+            .clip(RoundedCornerShape(12.dp))
+            .background(parseColor(media.coverColor)),
+    ) {
         AsyncImage(
-            model = media.bannerImage ?: media.coverImage,
+            model = if (focused) (media.bannerImage ?: media.coverImage) else media.coverImage,
             contentDescription = media.displayTitle,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.matchParentSize().background(parseColor(media.coverColor)),
+            modifier = Modifier.matchParentSize(),
         )
         Box(
             Modifier.matchParentSize().background(
-                Brush.horizontalGradient(0f to Oni.Bg.copy(alpha = 0.96f), 0.45f to Oni.Bg.copy(alpha = 0.6f), 0.75f to Color.Transparent))
+                Brush.verticalGradient(0.35f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.9f))
+            )
         )
-        Box(
-            Modifier.matchParentSize().background(
-                Brush.verticalGradient(0.5f to Color.Transparent, 1f to Oni.Bg))
-        )
-    }
-}
 
-@Composable
-private fun HeroText(media: AniListMedia, vm: AppViewModel) {
-    Column(Modifier.padding(start = 56.dp, top = 54.dp).widthIn(max = 760.dp)) {
-        Text(
-            media.genres.take(3).joinToString("  •  ").uppercase(),
-            color = Oni.Accent, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold,
-        )
-        Spacer(Modifier.height(12.dp))
-        Text(
-            media.displayTitle,
-            color = Oni.TextHi,
-            fontSize = 46.sp,
-            lineHeight = 50.sp,
-            fontWeight = FontWeight.ExtraBold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 820.dp),
-        )
-        Spacer(Modifier.height(14.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            media.scoreOutOfTen?.let { Text("★ ${"%.1f".format(it)}", color = Oni.Green, fontSize = 17.sp, fontWeight = FontWeight.SemiBold) }
-            media.seasonYear?.let { Text("$it", color = Oni.Text2, fontSize = 17.sp, fontWeight = FontWeight.SemiBold) }
-            media.episodes?.let { Text("$it Episodes", color = Oni.Text2, fontSize = 17.sp, fontWeight = FontWeight.SemiBold) }
-            Text(media.statusLabel, color = Oni.Text2, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+        if (!focused && badge != null) {
+            Box(
+                Modifier.align(Alignment.TopStart).padding(8.dp)
+                    .clip(RoundedCornerShape(6.dp)).background(Color(0xCC0A0A0F))
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            ) {
+                Text(badge, color = Oni.Accent, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+            }
         }
-        Spacer(Modifier.height(16.dp))
-        media.plainDescription?.let {
-            Text(it, color = Color(0xFFB8B8C8), fontSize = 18.sp, maxLines = 3, modifier = Modifier.widthIn(max = 620.dp))
+
+        if (focused) {
+            Column(Modifier.align(Alignment.BottomStart).padding(16.dp)) {
+                Text(media.displayTitle, color = Oni.TextHi, fontSize = 20.sp, lineHeight = 23.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(7.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    media.scoreOutOfTen?.let { Text("★ ${"%.1f".format(it)}", color = Oni.Green, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
+                    media.seasonYear?.let { Text("$it", color = Oni.Text2, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+                    media.episodes?.let { Text("$it eps", color = Oni.Text2, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+                    Text(media.statusLabel, color = Oni.Text2, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
+                media.plainDescription?.let {
+                    Spacer(Modifier.height(7.dp))
+                    Text(it, color = Color(0xFFB8B8C8), fontSize = 13.sp, lineHeight = 17.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        } else {
+            Text(
+                media.displayTitle,
+                color = Oni.Text,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).fillMaxWidth(),
+            )
         }
     }
 }
@@ -176,54 +167,10 @@ private fun HeroText(media: AniListMedia, vm: AppViewModel) {
 private fun badgeFor(rowTitle: String, index: Int, media: AniListMedia): String? {
     val sc = media.scoreOutOfTen
     return when {
+        rowTitle == "Continue Watching" -> "▶ RESUME"
         rowTitle == "Trending Now" && index < 10 -> "#${index + 1}"
         rowTitle == "Recently Updated" -> "NEW"
         sc != null && sc >= 7.5 -> "★ ${"%.1f".format(sc)}"
         else -> null
-    }
-}
-
-@Composable
-private fun RowSection(
-    row: HomeRow,
-    landscape: Boolean,
-    onFocusedMedia: (AniListMedia) -> Unit,
-    onClick: (AniListMedia) -> Unit,
-) {
-    Column {
-        Text(row.title, color = Oni.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 48.dp, bottom = 12.dp))
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
-            contentPadding = PaddingValues(horizontal = 48.dp, vertical = 6.dp),
-        ) {
-            itemsIndexed(row.items, key = { _, m -> m.id }) { index, media ->
-                if (landscape) {
-                    PosterCard(
-                        imageUrl = media.bannerImage ?: media.coverImage,
-                        seedColor = parseColor(media.coverColor),
-                        title = media.displayTitle,
-                        width = 320.dp, height = 180.dp,
-                        onFocused = { onFocusedMedia(media) },
-                        onClick = { onClick(media) },
-                        bottomOverlay = {
-                            Box(Modifier.align(Alignment.TopStart).padding(10.dp).clip(RoundedCornerShape(6.dp)).background(Oni.Accent).padding(horizontal = 9.dp, vertical = 4.dp)) {
-                                Text("▶ RESUME", color = Oni.White, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
-                            }
-                            Text(media.displayTitle, color = Oni.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.align(Alignment.BottomStart).padding(12.dp))
-                        },
-                    )
-                } else {
-                    PosterCard(
-                        imageUrl = media.coverImage,
-                        seedColor = parseColor(media.coverColor),
-                        title = media.displayTitle,
-                        width = 200.dp, height = 286.dp,
-                        topBadge = badgeFor(row.title, index, media),
-                        onFocused = { onFocusedMedia(media) },
-                        onClick = { onClick(media) },
-                    )
-                }
-            }
-        }
     }
 }

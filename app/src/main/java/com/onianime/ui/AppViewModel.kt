@@ -13,7 +13,7 @@ import com.onianime.metadata.AniListMedia
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-enum class Route { Home, Search, Detail, Player }
+enum class Route { Home, Search, Detail, Player, MyList }
 
 /**
  * Single source of truth for the UI. Holds navigation + the data each screen needs, loading from
@@ -78,6 +78,7 @@ class AppViewModel(
 
     fun goHome() { route = Route.Home }
     fun goSearch() { route = Route.Search }
+    fun goMyList() { route = Route.MyList }
 
     fun openDetail(media: AniListMedia) {
         detailMedia = media
@@ -142,7 +143,7 @@ class AppViewModel(
     /** Hardware/remote Back. Returns false when already at Home (let the system handle exit). */
     fun back(): Boolean = when (route) {
         Route.Player -> { route = Route.Detail; true }
-        Route.Detail, Route.Search -> { route = Route.Home; true }
+        Route.Detail, Route.Search, Route.MyList -> { route = Route.Home; true }
         Route.Home -> false
     }
 }

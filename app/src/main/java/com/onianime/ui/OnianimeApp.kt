@@ -7,12 +7,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -65,12 +67,13 @@ fun OnianimeApp(vm: AppViewModel = viewModel()) {
                 PlayerScreen(vm, agent)
             } else {
                 Column(Modifier.fillMaxSize()) {
-                    TopBar(vm)
+                    TopNav(vm)
                     Box(Modifier.fillMaxWidth().weight(1f)) {
                         when (vm.route) {
                             Route.Home -> HomeScreen(vm)
                             Route.Search -> SearchScreen(vm)
                             Route.Detail -> DetailScreen(vm)
+                            Route.MyList -> MyListScreen(vm)
                             Route.Player -> Unit
                         }
                     }
@@ -91,34 +94,39 @@ fun OnianimeApp(vm: AppViewModel = viewModel()) {
 }
 
 @Composable
-private fun TopBar(vm: AppViewModel) {
+private fun TopNav(vm: AppViewModel) {
     Row(
-        Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 40.dp),
+        Modifier.fillMaxWidth().height(72.dp).padding(horizontal = 48.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (vm.route != Route.Home) {
-            BackChip { vm.back() }
-        }
-        Box(Modifier.size(15.dp).clip(RoundedCornerShape(4.dp)).background(Oni.Accent))
+        Box(Modifier.size(16.dp).clip(RoundedCornerShape(4.dp)).background(Oni.Accent))
         Row(Modifier.padding(start = 11.dp)) {
-            Text("oni", color = Oni.TextHi, fontSize = 23.sp, fontWeight = FontWeight.ExtraBold)
-            Text("anime", color = Oni.Accent, fontSize = 23.sp, fontWeight = FontWeight.ExtraBold)
+            Text("oni", color = Oni.TextHi, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+            Text("anime", color = Oni.Accent, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
         }
+        Spacer(Modifier.width(48.dp))
+        NavTab("Search", active = vm.route == Route.Search) { vm.goSearch() }
+        NavTab("Home", active = vm.route == Route.Home || vm.route == Route.Detail) { vm.goHome() }
+        NavTab("My List", active = vm.route == Route.MyList) { vm.goMyList() }
     }
 }
 
 @Composable
-private fun BackChip(onBack: () -> Unit) {
+private fun NavTab(label: String, active: Boolean, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    Row(
-        Modifier.padding(end = 18.dp)
+    Box(
+        Modifier.padding(horizontal = 6.dp)
             .onFocusChanged { focused = it.isFocused }
-            .clickable { onBack() }
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (focused) Oni.Accent else Oni.Surface)
-            .padding(horizontal = 14.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .clickable { onClick() }
+            .clip(RoundedCornerShape(9.dp))
+            .background(if (focused) Oni.Accent else Color.Transparent)
+            .padding(horizontal = 18.dp, vertical = 9.dp),
     ) {
-        Text("‹  Back", color = if (focused) Oni.White else Oni.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Text(
+            label,
+            color = when { focused -> Oni.White; active -> Oni.TextHi; else -> Oni.Muted },
+            fontSize = 17.sp,
+            fontWeight = if (active || focused) FontWeight.Bold else FontWeight.Medium,
+        )
     }
 }
