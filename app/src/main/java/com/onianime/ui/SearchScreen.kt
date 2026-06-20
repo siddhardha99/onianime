@@ -61,25 +61,34 @@ fun SearchScreen(vm: AppViewModel) {
                 }
             }
             Spacer(Modifier.width(44.dp))
-            // Results
+            // Results — fall back to Trending when there's no query, so the screen is never empty.
+            val searching = vm.query.isNotBlank()
+            val trending = remember(vm.homeRows.toList()) {
+                (vm.homeRows.firstOrNull { it.title == "Trending Now" } ?: vm.homeRows.firstOrNull())?.items ?: emptyList()
+            }
+            val items = if (searching) vm.results.toList() else trending
             Column(Modifier.fillMaxSize()) {
                 Text(
-                    if (vm.query.isBlank()) "Type to search" else "${vm.results.size} results for “${vm.query}”",
+                    when {
+                        searching -> "${vm.results.size} results for “${vm.query}”"
+                        items.isNotEmpty() -> "Trending now"
+                        else -> "Type to search"
+                    },
                     color = Oni.Muted, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.height(16.dp))
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(4),
+                    columns = GridCells.Adaptive(minSize = 184.dp),
                     horizontalArrangement = Arrangement.spacedBy(20.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                     contentPadding = PaddingValues(bottom = 24.dp),
                 ) {
-                    items(vm.results, key = { it.id }) { media ->
+                    items(items, key = { it.id }) { media ->
                         PosterCard(
                             imageUrl = media.coverImage,
                             seedColor = parseColor(media.coverColor),
                             title = media.displayTitle,
-                            width = 200.dp, height = 280.dp,
+                            width = 184.dp, height = 262.dp,
                             onClick = { vm.openDetail(media) },
                         )
                     }
