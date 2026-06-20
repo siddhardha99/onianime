@@ -12,8 +12,13 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.onianime.R
 
 /** onianime palette — lifted directly from the onianime.dc.html design tokens. */
 object Oni {
@@ -31,6 +36,16 @@ object Oni {
     val SurfaceStrong = Color(0x24FFFFFF)
     val White = Color(0xFFFFFFFF)
 }
+
+/** Manrope (variable font) — the brand typeface. Weights resolved via the wght axis (API 26+). */
+@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+val Manrope = FontFamily(
+    Font(R.font.manrope_variable, FontWeight.Normal, variationSettings = FontVariation.Settings(FontVariation.weight(400))),
+    Font(R.font.manrope_variable, FontWeight.Medium, variationSettings = FontVariation.Settings(FontVariation.weight(500))),
+    Font(R.font.manrope_variable, FontWeight.SemiBold, variationSettings = FontVariation.Settings(FontVariation.weight(600))),
+    Font(R.font.manrope_variable, FontWeight.Bold, variationSettings = FontVariation.Settings(FontVariation.weight(700))),
+    Font(R.font.manrope_variable, FontWeight.ExtraBold, variationSettings = FontVariation.Settings(FontVariation.weight(800))),
+)
 
 const val FOCUS_SCALE = 1.09f
 

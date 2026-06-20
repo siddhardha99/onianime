@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,8 +18,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -114,15 +117,17 @@ fun DetailScreen(vm: AppViewModel) {
                 }
             }
 
-            // RIGHT: vertical episode list for the selected range
+            // RIGHT: 2-column episode grid for the selected range
             val current = ranges.getOrNull(rangeIndex) ?: vm.episodes.indices.toList()
-            LazyColumn(
-                Modifier.weight(1f).fillMaxHeight().padding(end = 40.dp),
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                modifier = Modifier.weight(1f).fillMaxHeight().padding(end = 40.dp),
                 contentPadding = PaddingValues(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 items(current, key = { it }) { globalIndex ->
-                    EpisodeRow(
+                    EpisodeGridCard(
                         epLabel = vm.episodes[globalIndex],
                         seedColor = parseColor(media.coverColor),
                         thumb = media.coverImage,
@@ -163,17 +168,13 @@ private fun RangeRow(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun EpisodeRow(epLabel: String, seedColor: Color, thumb: String?, runtimeMin: Int?, fraction: Float, onClick: () -> Unit) {
+private fun EpisodeGridCard(epLabel: String, seedColor: Color, thumb: String?, runtimeMin: Int?, fraction: Float, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    Row(
-        Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }.clickable { onClick() }
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (focused) Oni.Surface else Color.Transparent)
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
+        Modifier.onFocusChanged { focused = it.isFocused }.clickable { onClick() }.padding(4.dp),
     ) {
         Box(
-            Modifier.size(248.dp, 140.dp).focusCard(focused, radius = 10.dp).clip(RoundedCornerShape(10.dp)).background(seedColor),
+            Modifier.fillMaxWidth().aspectRatio(16f / 9f).focusCard(focused, radius = 10.dp).clip(RoundedCornerShape(10.dp)).background(seedColor),
         ) {
             AsyncImage(model = thumb, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
             Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.65f))))
@@ -184,9 +185,9 @@ private fun EpisodeRow(epLabel: String, seedColor: Color, thumb: String?, runtim
             }
             if (focused) {
                 Box(
-                    Modifier.align(Alignment.Center).size(46.dp).clip(RoundedCornerShape(23.dp)).background(Color(0x99000000)),
+                    Modifier.align(Alignment.Center).size(50.dp).clip(RoundedCornerShape(25.dp)).background(Color(0x99000000)),
                     contentAlignment = Alignment.Center,
-                ) { Text("▶", color = Oni.White, fontSize = 18.sp) }
+                ) { Text("▶", color = Oni.White, fontSize = 20.sp) }
             }
             if (fraction > 0f) {
                 Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(Color(0x55FFFFFF))) {
@@ -194,20 +195,18 @@ private fun EpisodeRow(epLabel: String, seedColor: Color, thumb: String?, runtim
                 }
             }
         }
-        Spacer(Modifier.width(22.dp))
-        Column(Modifier.weight(1f)) {
-            Text("Episode $epLabel", color = Oni.TextHi, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(5.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                runtimeMin?.let { Text("≈ $it min", color = Oni.Muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
-                val status = when {
-                    fraction >= 0.92f -> "✓ Watched"
-                    fraction > 0f -> "${(fraction * 100).toInt()}% — resume"
-                    else -> ""
-                }
-                if (status.isNotEmpty()) {
-                    Text(status, color = if (fraction >= 0.92f) Oni.Green else Oni.Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                }
+        Spacer(Modifier.height(9.dp))
+        Text("Episode $epLabel", color = Oni.TextHi, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(3.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            runtimeMin?.let { Text("≈ $it min", color = Oni.Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+            val status = when {
+                fraction >= 0.92f -> "✓ Watched"
+                fraction > 0f -> "${(fraction * 100).toInt()}% — resume"
+                else -> ""
+            }
+            if (status.isNotEmpty()) {
+                Text(status, color = if (fraction >= 0.92f) Oni.Green else Oni.Accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }

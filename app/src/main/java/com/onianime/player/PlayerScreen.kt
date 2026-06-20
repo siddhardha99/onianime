@@ -1,8 +1,14 @@
 package com.onianime.player
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,11 +21,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +40,10 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -43,11 +55,11 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Text
 import com.onianime.ui.AppViewModel
 import com.onianime.ui.theme.Oni
-import com.onianime.ui.theme.focusCard
 import kotlinx.coroutines.delay
 
 @OptIn(UnstableApi::class)
@@ -64,6 +76,12 @@ fun PlayerScreen(vm: AppViewModel, userAgent: String) {
         var position by remember(stream.url) { mutableLongStateOf(0L) }
         var duration by remember(stream.url) { mutableLongStateOf(0L) }
         var playing by remember(stream.url) { mutableStateOf(true) }
+        var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+
+        var controlsVisible by remember { mutableStateOf(true) }
+        var interactionTick by remember { mutableIntStateOf(0) }
+        val playFocus = remember { FocusRequester() }
+        val rootFocus = remember { FocusRequester() }
 
         val exoPlayer = remember(stream.url) {
             val factory = DefaultHttpDataSource.Factory().setUserAgent(userAgent).setAllowCrossProtocolRedirects(true)
@@ -72,7 +90,7 @@ fun PlayerScreen(vm: AppViewModel, userAgent: String) {
                 setMediaItem(MediaItem.fromUri(stream.url))
                 prepare()
                 val resume = vm.resumePositionMs()
-                if (resume > 0) seekTo(resume) // continue where the user left off
+                if (resume > 0) seekTo(resume)
                 playWhenReady = true
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(state: Int) {
@@ -98,87 +116,171 @@ fun PlayerScreen(vm: AppViewModel, userAgent: String) {
             }
         }
 
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { PlayerView(it).apply { player = exoPlayer; useController = false } },
-        )
+        // Auto-hide: any interaction shows controls and restarts the 4.5s hide timer.
+        LaunchedEffect(interactionTick) {
+            controlsVisible = true
+            delay(4500)
+            controlsVisible = false
+        }
+        // Snap focus: to Play when controls appear, to the (focusable) root when they hide.
+        LaunchedEffect(controlsVisible) {
+            runCatching { if (controlsVisible) playFocus.requestFocus() else rootFocus.requestFocus() }
+        }
 
-        // Top bar
-        val media = vm.detailMedia
-        Row(
-            Modifier.fillMaxWidth().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.72f), 1f to Color.Transparent)).padding(20.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Box(
+            Modifier.fillMaxSize()
+                .focusRequester(rootFocus)
+                .focusable()
+                .onPreviewKeyEvent { e ->
+                    if (e.type == KeyEventType.KeyDown) {
+                        val wasHidden = !controlsVisible
+                        interactionTick++ // reveal + restart timer
+                        wasHidden // consume only the wake-up press
+                    } else false
+                },
         ) {
-            Text("‹", color = Oni.Text2, fontSize = 30.sp, modifier = Modifier.clickable { vm.back() }.padding(end = 16.dp))
-            Column {
-                Text("${media?.displayTitle ?: ""}  •  EPISODE ${vm.episodes.getOrNull(vm.playerIndex) ?: ""}", color = Oni.Muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                Text("Episode ${vm.episodes.getOrNull(vm.playerIndex) ?: ""}", color = Oni.TextHi, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            }
-        }
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { PlayerView(it).apply { player = exoPlayer; useController = false } },
+                update = { it.resizeMode = resizeMode },
+            )
 
-        // AniSkip: Skip Intro/Outro button while the playhead is inside an op/ed interval.
-        val activeSkip = vm.skipIntervals.firstOrNull { it.contains(position) }
-        if (activeSkip != null) {
-            val skipFocus = remember { FocusRequester() }
-            var skipFocused by remember { mutableStateOf(false) }
-            LaunchedEffect(activeSkip.type, activeSkip.startMs) { runCatching { skipFocus.requestFocus() } }
-            Box(
-                Modifier.align(Alignment.BottomEnd).padding(end = 40.dp, bottom = 150.dp)
-                    .focusRequester(skipFocus)
-                    .onFocusChanged { skipFocused = it.isFocused }
-                    .clickable { exoPlayer.seekTo(activeSkip.endMs) }
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (skipFocused) Oni.White else Color(0xD9141420))
-                    .border(1.dp, if (skipFocused) Oni.White else Color(0x66FFFFFF), RoundedCornerShape(10.dp))
-                    .padding(horizontal = 28.dp, vertical = 14.dp),
+            // AniSkip button — visible whenever the playhead is in an op/ed interval.
+            val activeSkip = vm.skipIntervals.firstOrNull { it.contains(position) }
+            if (activeSkip != null) {
+                val skipFocus = remember { FocusRequester() }
+                var skipFocused by remember { mutableStateOf(false) }
+                LaunchedEffect(activeSkip.type, activeSkip.startMs) { runCatching { skipFocus.requestFocus() } }
+                Box(
+                    Modifier.align(Alignment.BottomEnd).padding(end = 40.dp, bottom = if (controlsVisible) 250.dp else 60.dp)
+                        .focusRequester(skipFocus).onFocusChanged { skipFocused = it.isFocused }
+                        .clickable { exoPlayer.seekTo(activeSkip.endMs) }
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (skipFocused) Oni.White else Color(0xD9141420))
+                        .border(2.dp, if (skipFocused) Oni.White else Color(0x66FFFFFF), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 28.dp, vertical = 14.dp),
+                ) {
+                    Text(activeSkip.label, color = if (skipFocused) Oni.Bg else Oni.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                }
+            }
+
+            AnimatedVisibility(
+                visible = controlsVisible,
+                enter = fadeIn(),
+                exit = fadeOut() + slideOutVertically { it / 3 },
             ) {
-                Text(activeSkip.label, color = if (skipFocused) Oni.Bg else Oni.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
-            }
-        }
+                // Glass scrim — anchored at the bottom, darkest at the bottom, fading up.
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.92f)))) {
+                    val media = vm.detailMedia
+                    // Top: title
+                    Row(Modifier.fillMaxWidth().padding(28.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column {
+                            Text("${media?.displayTitle ?: ""}  •  EPISODE ${vm.episodes.getOrNull(vm.playerIndex) ?: ""}", color = Oni.Muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Episode ${vm.episodes.getOrNull(vm.playerIndex) ?: ""}", color = Oni.TextHi, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
 
-        // Bottom controls
-        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().background(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.88f))).padding(start = 40.dp, end = 40.dp, top = 26.dp, bottom = 30.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                if (vm.playerIndex - 1 in vm.episodes.indices) ControlButton("⏮") { vm.prevEpisode() }
-                ControlButton("«10") { exoPlayer.seekTo((exoPlayer.currentPosition - 10_000).coerceAtLeast(0)) }
-                ControlButton(if (playing) "⏸" else "▶") { exoPlayer.playWhenReady = !exoPlayer.playWhenReady }
-                ControlButton("10»") {
-                    val d = exoPlayer.duration
-                    val t = exoPlayer.currentPosition + 10_000
-                    exoPlayer.seekTo(if (d > 0) t.coerceAtMost(d) else t)
+                    // Bottom control stack: Zone 1 scrubber, Zone 2 primary, Zone 3 secondary.
+                    Column(
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 48.dp, end = 48.dp, bottom = 34.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        // Zone 1 — scrubber
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(mmss(position), color = Oni.Text2, fontSize = 14.sp, modifier = Modifier.width(58.dp))
+                            Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color(0x33FFFFFF))) {
+                                val frac = if (duration > 0) position.toFloat() / duration else 0f
+                                Box(Modifier.fillMaxWidth(frac).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Oni.Accent))
+                            }
+                            Text(if (duration > 0) mmss(duration) else "--:--", color = Oni.Text2, fontSize = 14.sp, modifier = Modifier.width(58.dp), )
+                        }
+
+                        Spacer(Modifier.height(18.dp))
+
+                        // Zone 2 — primary controls (centered, play largest)
+                        Row(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Control("«10") { exoPlayer.seekTo((exoPlayer.currentPosition - 10_000).coerceAtLeast(0)) }
+                            Control(if (playing) "⏸" else "▶", big = true, focusRequester = playFocus) {
+                                exoPlayer.playWhenReady = !exoPlayer.playWhenReady
+                            }
+                            Control("10»") {
+                                val d = exoPlayer.duration
+                                val t = exoPlayer.currentPosition + 10_000
+                                exoPlayer.seekTo(if (d > 0) t.coerceAtMost(d) else t)
+                            }
+                            if (vm.playerIndex + 1 in vm.episodes.indices) Control("⏭") { vm.nextEpisode() }
+                        }
+
+                        Spacer(Modifier.height(16.dp))
+
+                        // Zone 3 — secondary controls (left utilities / right options)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Control(vm.currentQualityLabel(), small = true) { vm.cycleQuality() }
+                                Control("⤢ ${aspectLabel(resizeMode)}", small = true) { resizeMode = nextResize(resizeMode) }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Control("CC", small = true) { vm.toast = "Subtitles are baked into the video (soft subs coming later)" }
+                                Control(vm.mode.uppercase(), small = true) { vm.switchAudio() }
+                                Control("≣ Episodes", small = true) { vm.back() }
+                                Control("⚙", small = true) { vm.toast = "Settings — coming soon" }
+                            }
+                        }
+                    }
                 }
-                if (vm.playerIndex + 1 in vm.episodes.indices) ControlButton("⏭") { vm.nextEpisode() }
-                Text(mmss(position), color = Oni.Text2, fontSize = 14.sp, modifier = Modifier.width(52.dp))
-                Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Oni.SurfaceStrong)) {
-                    val frac = if (duration > 0) position.toFloat() / duration else 0f
-                    Box(Modifier.fillMaxWidth(frac).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Oni.Accent))
-                }
-                Text(if (duration > 0) mmss(duration) else "--:--", color = Oni.Text2, fontSize = 14.sp, modifier = Modifier.width(52.dp))
             }
-            Spacer(Modifier.height(12.dp))
-            Text("←/→ move between controls  ·  «10 / 10» seek 10s  ·  Enter activate  ·  Back to episodes", color = Oni.Faint, fontSize = 12.sp)
         }
     }
 }
 
+/** A control with the "god" focus state: bright white fill + ring + scale on focus. */
 @Composable
-private fun ControlButton(glyph: String, onClick: () -> Unit) {
+private fun Control(
+    glyph: String,
+    big: Boolean = false,
+    small: Boolean = false,
+    focusRequester: FocusRequester? = null,
+    onClick: () -> Unit,
+) {
     var focused by remember { mutableStateOf(false) }
-    Box(
-        Modifier.height(50.dp).widthIn(min = 50.dp)
-            .onFocusChanged { focused = it.isFocused }.clickable { onClick() }
-            .focusCard(focused, radius = 25.dp).clip(RoundedCornerShape(25.dp))
-            .background(if (focused) Oni.White else Oni.SurfaceStrong)
-            .padding(horizontal = 16.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(glyph, color = if (focused) Oni.Bg else Oni.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+    val base = Modifier
+        .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+        .onFocusChanged { focused = it.isFocused }
+        .clickable { onClick() }
+        .graphicsLayer { val s = if (focused) 1.12f else 1f; scaleX = s; scaleY = s }
+
+    if (big) {
+        Box(
+            base.size(72.dp).clip(CircleShape)
+                .background(if (focused) Oni.White else Color(0x33FFFFFF))
+                .then(if (focused) Modifier.border(3.dp, Oni.White, CircleShape) else Modifier),
+            contentAlignment = Alignment.Center,
+        ) { Text(glyph, color = if (focused) Oni.Bg else Oni.White, fontSize = 26.sp, fontWeight = FontWeight.Bold) }
+    } else {
+        Box(
+            base.height(if (small) 42.dp else 52.dp).widthIn(min = if (small) 42.dp else 52.dp)
+                .clip(RoundedCornerShape(26.dp))
+                .background(if (focused) Oni.White else Color(0x33FFFFFF))
+                .then(if (focused) Modifier.border(3.dp, Oni.White, RoundedCornerShape(26.dp)) else Modifier)
+                .padding(horizontal = if (small) 16.dp else 20.dp),
+            contentAlignment = Alignment.Center,
+        ) { Text(glyph, color = if (focused) Oni.Bg else Oni.White, fontSize = if (small) 14.sp else 17.sp, fontWeight = FontWeight.Bold) }
     }
+}
+
+private fun aspectLabel(mode: Int): String = when (mode) {
+    AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
+    AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Fill"
+    else -> "Fit"
+}
+
+private fun nextResize(mode: Int): Int = when (mode) {
+    AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+    AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+    else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
 }
 
 private fun mmss(ms: Long): String {
     val total = ms / 1000
-    val m = total / 60
-    val s = total % 60
-    return "%d:%02d".format(m, s)
+    return "%d:%02d".format(total / 60, total % 60)
 }

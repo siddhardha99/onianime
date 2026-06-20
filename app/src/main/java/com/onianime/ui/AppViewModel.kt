@@ -71,6 +71,7 @@ class AppViewModel(
     var playerStatus by mutableStateOf("")
         private set
     val skipIntervals = mutableStateListOf<SkipInterval>()
+    val playerStreams = mutableStateListOf<Stream>() // distinct qualities for the current episode
 
     var toast by mutableStateOf<String?>(null)
 
@@ -199,12 +200,37 @@ class AppViewModel(
                 if (playerIndex == index) { skipIntervals.clear(); skipIntervals.addAll(times) }
             }
         }
+        playerStreams.clear()
         viewModelScope.launch {
-            val streams = runCatching { repo.streams(id, mode, episodes[index]) }.getOrDefault(emptyList())
-            val best = streams.firstOrNull { it.url.startsWith("http") }
+            val streams = runCatching { repo.streams(id, mode, episodes[index]) }
+                .getOrDefault(emptyList()).filter { it.url.startsWith("http") }
+            val distinct = streams.distinctBy { it.heightOrZero }
+            playerStreams.clear(); playerStreams.addAll(distinct)
+            val best = distinct.firstOrNull()
             if (best == null) playerStatus = "No playable stream for episode ${episodes[index]}"
             else { playerStream = best; playerStatus = "" }
         }
+    }
+
+    /** Current quality label, e.g. "1080p" or "auto". */
+    fun currentQualityLabel(): String =
+        playerStream?.let { if (it.heightOrZero > 0) "${it.heightOrZero}p" else "auto" } ?: "—"
+
+    /** Switch to the next available quality, preserving position via saved progress. */
+    fun cycleQuality() {
+        if (playerStreams.size <= 1) { toast = "Only one quality available"; return }
+        val cur = playerStream ?: return
+        val i = playerStreams.indexOfFirst { it.url == cur.url }.coerceAtLeast(0)
+        val next = playerStreams[(i + 1) % playerStreams.size]
+        playerStream = next
+        toast = "Quality: ${if (next.heightOrZero > 0) "${next.heightOrZero}p" else "auto"}"
+    }
+
+    /** Toggle SUB/DUB and re-resolve the current episode in the new mode. */
+    fun switchAudio() {
+        mode = if (mode == "sub") "dub" else "sub"
+        toast = "Audio: ${mode.uppercase()}"
+        playEpisode(playerIndex)
     }
 
     fun nextEpisode() { if (playerIndex + 1 in episodes.indices) playEpisode(playerIndex + 1) }
