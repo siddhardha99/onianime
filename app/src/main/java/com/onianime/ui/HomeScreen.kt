@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.onianime.catalog.HomeRow
+import kotlinx.coroutines.delay
 import com.onianime.metadata.AniListMedia
 import com.onianime.ui.theme.Oni
 import com.onianime.ui.theme.focusCard
@@ -45,6 +47,7 @@ import com.onianime.ui.theme.focusCard
 private val CARD_W = 200.dp
 private val CARD_EXPANDED_W = 480.dp
 private val CARD_H = 286.dp
+private const val INTENT_DELAY_MS = 450L
 
 @Composable
 fun HomeScreen(vm: AppViewModel) {
@@ -102,18 +105,31 @@ private fun RowSection(row: HomeRow, onClick: (AniListMedia) -> Unit) {
 @Composable
 private fun ExpandingCard(media: AniListMedia, badge: String?, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    val width by animateDpAsState(if (focused) CARD_EXPANDED_W else CARD_W, label = "cardWidth")
+    var expanded by remember { mutableStateOf(false) }
+
+    // Intent delay (debounce): only expand if the cursor lingers ~450ms. Moving away before then
+    // cancels this effect (focused -> false restarts it) so fast scrolling never triggers expansion.
+    LaunchedEffect(focused) {
+        if (focused) {
+            delay(INTENT_DELAY_MS)
+            expanded = true
+        } else {
+            expanded = false
+        }
+    }
+
+    val width by animateDpAsState(if (expanded) CARD_EXPANDED_W else CARD_W, label = "cardWidth")
 
     Box(
         Modifier.width(width).height(CARD_H)
             .onFocusChanged { focused = it.isFocused }
             .clickable { onClick() }
-            .focusCard(focused)
+            .focusCard(focused) // highlight ring is instant; only the expansion is debounced
             .clip(RoundedCornerShape(12.dp))
             .background(parseColor(media.coverColor)),
     ) {
         AsyncImage(
-            model = if (focused) (media.bannerImage ?: media.coverImage) else media.coverImage,
+            model = if (expanded) (media.bannerImage ?: media.coverImage) else media.coverImage,
             contentDescription = media.displayTitle,
             contentScale = ContentScale.Crop,
             modifier = Modifier.matchParentSize(),
@@ -124,7 +140,7 @@ private fun ExpandingCard(media: AniListMedia, badge: String?, onClick: () -> Un
             )
         )
 
-        if (!focused && badge != null) {
+        if (!expanded && badge != null) {
             Box(
                 Modifier.align(Alignment.TopStart).padding(8.dp)
                     .clip(RoundedCornerShape(6.dp)).background(Color(0xCC0A0A0F))
@@ -134,7 +150,7 @@ private fun ExpandingCard(media: AniListMedia, badge: String?, onClick: () -> Un
             }
         }
 
-        if (focused) {
+        if (expanded) {
             Column(Modifier.align(Alignment.BottomStart).padding(16.dp)) {
                 Text(media.displayTitle, color = Oni.TextHi, fontSize = 20.sp, lineHeight = 23.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(7.dp))
