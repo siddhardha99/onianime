@@ -1,10 +1,9 @@
 package com.onianime.ui
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +25,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -33,6 +33,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -121,7 +126,8 @@ fun DetailScreen(vm: AppViewModel) {
             // RIGHT: 2-column episode grid for the selected range
             val current = ranges.getOrNull(rangeIndex) ?: vm.episodes.indices.toList()
             LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
+                // Adaptive: as many columns as fit (≈3 on a TV, more on wider screens).
+                columns = GridCells.Adaptive(minSize = 340.dp),
                 modifier = Modifier.weight(1f).fillMaxHeight().padding(end = 40.dp),
                 contentPadding = PaddingValues(bottom = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -167,10 +173,10 @@ private fun RangeRow(label: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun EpisodeGridCard(epLabel: String, runtimeMin: Int?, fraction: Float, onClick: () -> Unit, onLongClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
+    var downAt by remember { mutableLongStateOf(0L) }
     val watched = fraction >= 0.92f
     val watching = fraction > 0f && !watched
     val accent = when { watched -> Oni.Green; watching -> Oni.Accent; else -> Oni.Muted }
@@ -183,7 +189,22 @@ private fun EpisodeGridCard(epLabel: String, runtimeMin: Int?, fraction: Float, 
     Box(
         Modifier.fillMaxWidth().height(96.dp)
             .onFocusChanged { focused = it.isFocused }
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .focusable()
+            .onKeyEvent { e ->
+                val select = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
+                if (!select) return@onKeyEvent false
+                when (e.type) {
+                    // Hold ≥ 450ms = mark watched/unwatched; a short tap = play.
+                    KeyEventType.KeyDown -> { if (downAt == 0L) downAt = System.currentTimeMillis(); true }
+                    KeyEventType.KeyUp -> {
+                        val held = System.currentTimeMillis() - downAt
+                        downAt = 0L
+                        if (held >= 450) onLongClick() else onClick()
+                        true
+                    }
+                    else -> false
+                }
+            }
             .clip(RoundedCornerShape(12.dp))
             .focusCard(focused, radius = 12.dp)
             .background(if (focused) Color(0x26FFFFFF) else Color(0x12FFFFFF))
