@@ -161,6 +161,17 @@ class AppViewModel(
     fun episodeFraction(showId: Int, episodeIndex: Int): Float =
         progressByShow[showId]?.episodes?.get(episodeIndex)?.fraction ?: 0f
 
+    /** Long-press toggle: mark an episode watched, or clear it back to unwatched. */
+    fun toggleEpisodeWatched(index: Int) {
+        val media = detailMedia ?: return
+        val label = episodes.getOrNull(index) ?: return
+        val isWatched = progressByShow[media.id]?.episodes?.get(index)?.finished == true
+        viewModelScope.launch {
+            store.setEpisodeWatched(media, index, label, !isWatched)
+            toast = if (!isWatched) "Episode $label marked watched" else "Episode $label marked unwatched"
+        }
+    }
+
     /** Saved resume position (ms) for the currently-playing episode; 0 if none or finished. */
     fun resumePositionMs(): Long {
         val media = playerMedia ?: return 0

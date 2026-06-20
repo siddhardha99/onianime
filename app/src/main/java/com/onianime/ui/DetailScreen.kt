@@ -1,15 +1,16 @@
 package com.onianime.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -129,11 +130,10 @@ fun DetailScreen(vm: AppViewModel) {
                 items(current, key = { it }) { globalIndex ->
                     EpisodeGridCard(
                         epLabel = vm.episodes[globalIndex],
-                        seedColor = parseColor(media.coverColor),
-                        thumb = media.coverImage,
                         runtimeMin = media.duration,
                         fraction = vm.episodeFraction(media.id, globalIndex),
                         onClick = { vm.playEpisode(globalIndex) },
+                        onLongClick = { vm.toggleEpisodeWatched(globalIndex) },
                     )
                 }
             }
@@ -167,46 +167,54 @@ private fun RangeRow(label: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun EpisodeGridCard(epLabel: String, seedColor: Color, thumb: String?, runtimeMin: Int?, fraction: Float, onClick: () -> Unit) {
+private fun EpisodeGridCard(epLabel: String, runtimeMin: Int?, fraction: Float, onClick: () -> Unit, onLongClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    Column(
-        Modifier.onFocusChanged { focused = it.isFocused }.clickable { onClick() }.padding(4.dp),
+    val watched = fraction >= 0.92f
+    val watching = fraction > 0f && !watched
+    val accent = when { watched -> Oni.Green; watching -> Oni.Accent; else -> Oni.Muted }
+    val statusText = when {
+        watched -> "Watched"
+        watching -> "${(fraction * 100).toInt()}% — resume"
+        else -> "Unwatched"
+    }
+
+    Box(
+        Modifier.fillMaxWidth().height(96.dp)
+            .onFocusChanged { focused = it.isFocused }
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .clip(RoundedCornerShape(12.dp))
+            .focusCard(focused, radius = 12.dp)
+            .background(if (focused) Color(0x26FFFFFF) else Color(0x12FFFFFF))
+            .border(1.dp, if (focused) Oni.White else Color(0x20FFFFFF), RoundedCornerShape(12.dp)),
     ) {
-        Box(
-            Modifier.fillMaxWidth().aspectRatio(16f / 9f).focusCard(focused, radius = 10.dp).clip(RoundedCornerShape(10.dp)).background(seedColor),
-        ) {
-            AsyncImage(model = thumb, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
-            Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.65f))))
+        Row(Modifier.fillMaxSize().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier.align(Alignment.TopStart).padding(8.dp).clip(RoundedCornerShape(7.dp)).background(Color(0xB30A0A0F)).padding(horizontal = 9.dp, vertical = 3.dp),
+                Modifier.size(54.dp).clip(RoundedCornerShape(10.dp)).background(accent.copy(alpha = if (watched || watching) 0.22f else 0.12f)),
+                contentAlignment = Alignment.Center,
             ) {
-                Text("$epLabel", color = Oni.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                Text(epLabel, color = if (watched || watching) accent else Oni.Text, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
             }
-            if (focused) {
-                Box(
-                    Modifier.align(Alignment.Center).size(50.dp).clip(RoundedCornerShape(25.dp)).background(Color(0x99000000)),
-                    contentAlignment = Alignment.Center,
-                ) { Text("▶", color = Oni.White, fontSize = 20.sp) }
-            }
-            if (fraction > 0f) {
-                Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(Color(0x55FFFFFF))) {
-                    Box(Modifier.fillMaxWidth(fraction).height(4.dp).background(Oni.Accent))
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Episode $epLabel", color = Oni.TextHi, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(statusText, color = accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    runtimeMin?.let { Text("· ${it}m", color = Oni.Faint, fontSize = 12.sp, fontWeight = FontWeight.Medium) }
                 }
             }
+            Text(
+                if (watched) "✓" else if (focused) "▶" else "",
+                color = if (watched) Oni.Green else Oni.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+            )
         }
-        Spacer(Modifier.height(9.dp))
-        Text("Episode $epLabel", color = Oni.TextHi, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Spacer(Modifier.height(3.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            runtimeMin?.let { Text("≈ $it min", color = Oni.Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
-            val status = when {
-                fraction >= 0.92f -> "✓ Watched"
-                fraction > 0f -> "${(fraction * 100).toInt()}% — resume"
-                else -> ""
-            }
-            if (status.isNotEmpty()) {
-                Text(status, color = if (fraction >= 0.92f) Oni.Green else Oni.Accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        if (watching) {
+            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color(0x33FFFFFF))) {
+                Box(Modifier.fillMaxWidth(fraction).height(3.dp).background(Oni.Accent))
             }
         }
     }

@@ -67,6 +67,24 @@ class WatchStore(private val context: Context) {
         }
     }
 
+    /** Manually mark a single episode watched (full) or unwatched (cleared). */
+    suspend fun setEpisodeWatched(media: AniListMedia, episodeIndex: Int, episodeLabel: String, watched: Boolean) {
+        context.dataStore.edit { prefs ->
+            val map = decodeProgress(prefs[progressKey]).toMutableMap()
+            val existing = map[media.id]
+            val eps = (existing?.episodes ?: emptyMap()).toMutableMap()
+            if (watched) eps[episodeIndex] = EpProgress(1L, 1L) else eps.remove(episodeIndex)
+            map[media.id] = ShowProgress(
+                media,
+                existing?.lastEpisodeIndex ?: episodeIndex,
+                existing?.lastEpisodeLabel ?: episodeLabel,
+                eps,
+                System.currentTimeMillis(),
+            )
+            prefs[progressKey] = json.encodeToString(map)
+        }
+    }
+
     /** Marks a show as started (updates last episode + recency) but keeps existing episode positions. */
     suspend fun markStarted(media: AniListMedia, episodeIndex: Int, episodeLabel: String) {
         context.dataStore.edit { prefs ->
