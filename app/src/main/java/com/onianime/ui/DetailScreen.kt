@@ -61,8 +61,8 @@ fun DetailScreen(vm: AppViewModel) {
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
-        Box(Modifier.fillMaxSize().background(Oni.Bg.copy(alpha = 0.86f)))
-        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Oni.Bg, 0.5f to Oni.Bg.copy(alpha = 0.7f), 1f to Oni.Bg.copy(alpha = 0.92f))))
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Oni.Bg, 0.42f to Oni.Bg.copy(alpha = 0.9f), 1f to Oni.Bg.copy(alpha = 0.97f))))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Oni.Bg.copy(alpha = 0.5f), 0.45f to Color.Transparent, 1f to Oni.Bg.copy(alpha = 0.82f))))
 
         Row(Modifier.fillMaxSize().padding(top = 20.dp, bottom = 24.dp)) {
             // LEFT: info + range list
@@ -126,6 +126,7 @@ fun DetailScreen(vm: AppViewModel) {
                         epLabel = vm.episodes[globalIndex],
                         seedColor = parseColor(media.coverColor),
                         thumb = media.coverImage,
+                        runtimeMin = media.duration,
                         fraction = vm.episodeFraction(media.id, globalIndex),
                         onClick = { vm.playEpisode(globalIndex) },
                     )
@@ -162,38 +163,51 @@ private fun RangeRow(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun EpisodeRow(epLabel: String, seedColor: Color, thumb: String?, fraction: Float, onClick: () -> Unit) {
+private fun EpisodeRow(epLabel: String, seedColor: Color, thumb: String?, runtimeMin: Int?, fraction: Float, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }.clickable { onClick() }
             .clip(RoundedCornerShape(12.dp))
             .background(if (focused) Oni.Surface else Color.Transparent)
-            .padding(10.dp),
+            .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier.size(200.dp, 112.dp).focusCard(focused, radius = 10.dp).clip(RoundedCornerShape(10.dp)).background(seedColor),
+            Modifier.size(248.dp, 140.dp).focusCard(focused, radius = 10.dp).clip(RoundedCornerShape(10.dp)).background(seedColor),
         ) {
             AsyncImage(model = thumb, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
-            Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.6f))))
-            Text("$epLabel", color = Oni.White, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.align(Alignment.TopStart).padding(start = 10.dp, top = 6.dp))
+            Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.65f))))
+            Box(
+                Modifier.align(Alignment.TopStart).padding(8.dp).clip(RoundedCornerShape(7.dp)).background(Color(0xB30A0A0F)).padding(horizontal = 9.dp, vertical = 3.dp),
+            ) {
+                Text("$epLabel", color = Oni.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+            }
+            if (focused) {
+                Box(
+                    Modifier.align(Alignment.Center).size(46.dp).clip(RoundedCornerShape(23.dp)).background(Color(0x99000000)),
+                    contentAlignment = Alignment.Center,
+                ) { Text("▶", color = Oni.White, fontSize = 18.sp) }
+            }
             if (fraction > 0f) {
                 Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(Color(0x55FFFFFF))) {
                     Box(Modifier.fillMaxWidth(fraction).height(4.dp).background(Oni.Accent))
                 }
             }
         }
-        Spacer(Modifier.width(18.dp))
+        Spacer(Modifier.width(22.dp))
         Column(Modifier.weight(1f)) {
-            Text("Episode $epLabel", color = Oni.TextHi, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-            val status = when {
-                fraction >= 0.92f -> "Watched"
-                fraction > 0f -> "${(fraction * 100).toInt()}% watched — resume"
-                else -> ""
-            }
-            if (status.isNotEmpty()) {
-                Spacer(Modifier.height(4.dp))
-                Text(status, color = if (fraction >= 0.92f) Oni.Muted else Oni.Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text("Episode $epLabel", color = Oni.TextHi, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(5.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                runtimeMin?.let { Text("≈ $it min", color = Oni.Muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+                val status = when {
+                    fraction >= 0.92f -> "✓ Watched"
+                    fraction > 0f -> "${(fraction * 100).toInt()}% — resume"
+                    else -> ""
+                }
+                if (status.isNotEmpty()) {
+                    Text(status, color = if (fraction >= 0.92f) Oni.Green else Oni.Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }

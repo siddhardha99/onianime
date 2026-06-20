@@ -18,6 +18,8 @@ data class AniListMedia(
     /** AniList average score out of 100 (e.g. 91). */
     val averageScore: Int?,
     val genres: List<String>,
+    /** Per-episode runtime in minutes (default for forward-compat with older saved data). */
+    val duration: Int? = null,
     val description: String?,
     val coverImage: String?,
     val bannerImage: String?,

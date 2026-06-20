@@ -86,6 +86,7 @@ class AniListClient(
             seasonYear = this["seasonYear"]?.jsonPrimitive?.intOrNull(),
             averageScore = this["averageScore"]?.jsonPrimitive?.intOrNull(),
             genres = (this["genres"] as? JsonArray)?.mapNotNull { it.jsonPrimitive.contentOrNull() } ?: emptyList(),
+            duration = this["duration"]?.jsonPrimitive?.intOrNull(),
             description = this.str("description"),
             coverImage = this["coverImage"]?.jsonObject?.let { it.str("extraLarge") ?: it.str("large") },
             bannerImage = this.str("bannerImage"),
@@ -111,7 +112,7 @@ class AniListClient(
                 media(search: ${'$'}search, sort: ${'$'}sort, genre: ${'$'}genre, type: ANIME, isAdult: false) {
                   id idMal
                   title { romaji english native }
-                  synonyms episodes format status seasonYear averageScore genres
+                  synonyms episodes format status seasonYear averageScore genres duration
                   description(asHtml: false)
                   coverImage { extraLarge large color }
                   bannerImage
