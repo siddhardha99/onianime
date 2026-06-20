@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -41,7 +42,10 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
@@ -94,7 +98,7 @@ fun PlayerScreen(vm: AppViewModel, userAgent: String) {
                 playWhenReady = true
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(state: Int) {
-                        if (state == Player.STATE_ENDED) vm.nextEpisode()
+                        if (state == Player.STATE_ENDED && vm.settings.autoPlayNext) vm.nextEpisode()
                     }
                 })
             }
@@ -145,9 +149,11 @@ fun PlayerScreen(vm: AppViewModel, userAgent: String) {
                 update = { it.resizeMode = resizeMode },
             )
 
-            // AniSkip button — visible whenever the playhead is in an op/ed interval.
+            // AniSkip — auto-skip (setting) or a focusable button while inside an op/ed interval.
             val activeSkip = vm.skipIntervals.firstOrNull { it.contains(position) }
-            if (activeSkip != null) {
+            if (activeSkip != null && vm.settings.autoSkip) {
+                LaunchedEffect(activeSkip.type, activeSkip.startMs) { exoPlayer.seekTo(activeSkip.endMs) }
+            } else if (activeSkip != null) {
                 val skipFocus = remember { FocusRequester() }
                 var skipFocused by remember { mutableStateOf(false) }
                 LaunchedEffect(activeSkip.type, activeSkip.startMs) { runCatching { skipFocus.requestFocus() } }
@@ -185,14 +191,41 @@ fun PlayerScreen(vm: AppViewModel, userAgent: String) {
                         Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 48.dp, end = 48.dp, bottom = 34.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        // Zone 1 — scrubber
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Zone 1 — scrubber (focusable; ←/→ seek 10s, hold to scrub)
+                        var scrubFocused by remember { mutableStateOf(false) }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(mmss(position), color = Oni.Text2, fontSize = 14.sp, modifier = Modifier.width(58.dp))
-                            Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color(0x33FFFFFF))) {
-                                val frac = if (duration > 0) position.toFloat() / duration else 0f
-                                Box(Modifier.fillMaxWidth(frac).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Oni.Accent))
+                            Box(
+                                Modifier.weight(1f).height(if (scrubFocused) 14.dp else 6.dp)
+                                    .onFocusChanged { scrubFocused = it.isFocused }
+                                    .focusable()
+                                    .onKeyEvent { e ->
+                                        if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
+                                        when (e.key) {
+                                            Key.DirectionLeft -> { exoPlayer.seekTo((exoPlayer.currentPosition - 10_000).coerceAtLeast(0)); true }
+                                            Key.DirectionRight -> {
+                                                val d = exoPlayer.duration
+                                                val t = exoPlayer.currentPosition + 10_000
+                                                exoPlayer.seekTo(if (d > 0) t.coerceAtMost(d) else t); true
+                                            }
+                                            else -> false
+                                        }
+                                    }
+                                    .clip(RoundedCornerShape(7.dp))
+                                    .background(Color(0x33FFFFFF))
+                                    .then(if (scrubFocused) Modifier.border(2.dp, Oni.White, RoundedCornerShape(7.dp)) else Modifier),
+                            ) {
+                                val frac = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+                                Box(Modifier.fillMaxWidth(frac).fillMaxHeight().clip(RoundedCornerShape(7.dp)).background(Oni.Accent))
+                                if (scrubFocused) {
+                                    Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                                        if (frac > 0f) Spacer(Modifier.weight(frac.coerceIn(0.001f, 0.999f)))
+                                        Box(Modifier.size(18.dp).clip(CircleShape).background(Oni.White))
+                                        Spacer(Modifier.weight((1f - frac).coerceIn(0.001f, 0.999f)))
+                                    }
+                                }
                             }
-                            Text(if (duration > 0) mmss(duration) else "--:--", color = Oni.Text2, fontSize = 14.sp, modifier = Modifier.width(58.dp), )
+                            Text(if (duration > 0) mmss(duration) else "--:--", color = Oni.Text2, fontSize = 14.sp, modifier = Modifier.width(58.dp))
                         }
 
                         Spacer(Modifier.height(18.dp))

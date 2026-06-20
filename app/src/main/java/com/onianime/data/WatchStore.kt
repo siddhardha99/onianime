@@ -23,6 +23,15 @@ data class EpProgress(val positionMs: Long, val durationMs: Long) {
     val finished: Boolean get() = durationMs > 0 && positionMs >= durationMs * 0.92f
 }
 
+/** User preferences. */
+@Serializable
+data class Settings(
+    val defaultMode: String = "sub",        // sub | dub
+    val preferredQuality: String = "best",  // best | worst | 1080 | 720 | 480
+    val autoSkip: Boolean = false,          // auto-skip op/ed instead of a button
+    val autoPlayNext: Boolean = true,       // auto-advance to next episode at the end
+)
+
 /** What the user has watched of a show: last episode + per-episode positions. */
 @Serializable
 data class ShowProgress(
@@ -41,6 +50,17 @@ class WatchStore(private val context: Context) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val progressKey = stringPreferencesKey("progress")
     private val myListKey = stringPreferencesKey("my_list")
+    private val settingsKey = stringPreferencesKey("settings")
+
+    val settings: Flow<Settings> = context.dataStore.data.map { prefs ->
+        val s = prefs[settingsKey]
+        if (s.isNullOrBlank()) Settings()
+        else runCatching { json.decodeFromString<Settings>(s) }.getOrDefault(Settings())
+    }
+
+    suspend fun saveSettings(s: Settings) {
+        context.dataStore.edit { prefs -> prefs[settingsKey] = json.encodeToString(s) }
+    }
 
     /** Shows with progress, most-recently-watched first. */
     val progress: Flow<List<ShowProgress>> = context.dataStore.data.map { prefs ->

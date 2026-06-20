@@ -7,17 +7,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.onianime.allanime.ConfigClient
 import com.onianime.allanime.Stream
 import com.onianime.catalog.CatalogRepository
 import com.onianime.catalog.HomeRow
+import com.onianime.config.AllAnimeConfig
+import com.onianime.data.Settings
 import com.onianime.data.ShowProgress
 import com.onianime.data.WatchStore
 import com.onianime.metadata.AniListMedia
 import com.onianime.metadata.SkipInterval
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-enum class Route { Home, Search, Detail, Player, MyList }
+enum class Route { Home, Search, Detail, Player, MyList, Settings }
 
 /**
  * Single source of truth for the UI. Holds navigation + the data each screen needs, loading from
@@ -25,13 +30,15 @@ enum class Route { Home, Search, Detail, Player, MyList }
  */
 class AppViewModel(
     app: Application,
-    private val repo: CatalogRepository,
+    private var repo: CatalogRepository,
 ) : AndroidViewModel(app) {
 
     // Real Application constructor so androidx viewModel() can instantiate it.
     constructor(app: Application) : this(app, CatalogRepository())
 
     private val store = WatchStore(app)
+    private val configClient = ConfigClient()
+    private var currentConfig = AllAnimeConfig.BAKED_IN
 
     var route by mutableStateOf(Route.Home)
         private set
@@ -42,6 +49,9 @@ class AppViewModel(
     val myList = mutableStateListOf<AniListMedia>()
     var progressByShow by mutableStateOf<Map<Int, ShowProgress>>(emptyMap())
         private set
+    var settings by mutableStateOf(Settings())
+        private set
+    private var settingsLoaded = false
     var homeLoading by mutableStateOf(true)
         private set
 
@@ -77,6 +87,7 @@ class AppViewModel(
 
     init {
         loadHome()
+        viewModelScope.launch { refreshConfig() } // pull latest allanime key/hash from GitHub
         viewModelScope.launch {
             store.progress.collect { list ->
                 progressByShow = list.associateBy { it.media.id }
@@ -87,6 +98,30 @@ class AppViewModel(
         viewModelScope.launch {
             store.myList.collect { list -> myList.clear(); myList.addAll(list) }
         }
+        viewModelScope.launch {
+            store.settings.collect { s ->
+                settings = s
+                if (!settingsLoaded) { mode = s.defaultMode; settingsLoaded = true }
+            }
+        }
+    }
+
+    fun goSettings() { route = Route.Settings }
+
+    fun updateSettings(s: Settings) {
+        settings = s
+        viewModelScope.launch { store.saveSettings(s) }
+    }
+
+    /** Self-heal: fetch the latest allanime.json from the onianime-config repo; rebuild the repo if it changed. */
+    private suspend fun refreshConfig(): Boolean {
+        val fresh = withContext(Dispatchers.IO) { configClient.fetch() }
+        if (fresh != currentConfig) {
+            currentConfig = fresh
+            repo = CatalogRepository(fresh)
+            return true
+        }
+        return false
     }
 
     fun loadHome() {
@@ -115,13 +150,18 @@ class AppViewModel(
         episodes.clear()
         detailStatus = "Finding source…"
         viewModelScope.launch {
-            val id = runCatching { repo.resolveAllAnimeId(media, mode) }.getOrNull()
+            var id = runCatching { repo.resolveAllAnimeId(media, mode) }.getOrNull()
+            var eps = id?.let { runCatching { repo.episodes(it, mode) }.getOrDefault(emptyList()) } ?: emptyList()
+            // self-heal: allanime may have rotated its key/hash — refresh config and retry once
+            if ((id == null || eps.isEmpty()) && refreshConfig()) {
+                id = runCatching { repo.resolveAllAnimeId(media, mode) }.getOrNull()
+                eps = id?.let { runCatching { repo.episodes(it, mode) }.getOrDefault(emptyList()) } ?: emptyList()
+            }
             if (id == null) {
                 detailStatus = "No source found for this title"
                 return@launch
             }
             detailAllAnimeId = id
-            val eps = runCatching { repo.episodes(id, mode) }.getOrDefault(emptyList())
             episodes.clear(); episodes.addAll(eps)
             detailStatus = if (eps.isEmpty()) "No episodes available" else ""
         }
@@ -213,13 +253,25 @@ class AppViewModel(
         }
         playerStreams.clear()
         viewModelScope.launch {
-            val streams = runCatching { repo.streams(id, mode, episodes[index]) }
+            suspend fun resolve() = runCatching { repo.streams(id, mode, episodes[index]) }
                 .getOrDefault(emptyList()).filter { it.url.startsWith("http") }
+            var streams = resolve()
+            if (streams.isEmpty() && refreshConfig()) streams = resolve() // self-heal retry
             val distinct = streams.distinctBy { it.heightOrZero }
             playerStreams.clear(); playerStreams.addAll(distinct)
-            val best = distinct.firstOrNull()
+            val best = pickPreferredStream(distinct)
             if (best == null) playerStatus = "No playable stream for episode ${episodes[index]}"
             else { playerStream = best; playerStatus = "" }
+        }
+    }
+
+    /** Choose a stream matching the user's preferred quality, else the best available. */
+    private fun pickPreferredStream(streams: List<Stream>): Stream? {
+        if (streams.isEmpty()) return null
+        return when (val q = settings.preferredQuality) {
+            "best" -> streams.first()
+            "worst" -> streams.lastOrNull { it.heightOrZero > 0 } ?: streams.last()
+            else -> streams.firstOrNull { it.heightOrZero == q.toIntOrNull() } ?: streams.first()
         }
     }
 
@@ -250,7 +302,7 @@ class AppViewModel(
     /** Hardware/remote Back. Returns false when already at Home (let the system handle exit). */
     fun back(): Boolean = when (route) {
         Route.Player -> { route = Route.Detail; true }
-        Route.Detail, Route.Search, Route.MyList -> { route = Route.Home; true }
+        Route.Detail, Route.Search, Route.MyList, Route.Settings -> { route = Route.Home; true }
         Route.Home -> false
     }
 }

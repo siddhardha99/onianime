@@ -74,6 +74,7 @@ fun OnianimeApp(vm: AppViewModel = viewModel()) {
                             Route.Search -> SearchScreen(vm)
                             Route.Detail -> DetailScreen(vm)
                             Route.MyList -> MyListScreen(vm)
+                            Route.Settings -> SettingsScreen(vm)
                             Route.Player -> Unit
                         }
                     }
@@ -108,6 +109,7 @@ private fun TopNav(vm: AppViewModel) {
         NavTab("Search", active = vm.route == Route.Search) { vm.goSearch() }
         NavTab("Home", active = vm.route == Route.Home || vm.route == Route.Detail) { vm.goHome() }
         NavTab("My List", active = vm.route == Route.MyList) { vm.goMyList() }
+        NavTab("Settings", active = vm.route == Route.Settings) { vm.goSettings() }
     }
 }
 
