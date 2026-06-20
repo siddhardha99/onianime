@@ -6,6 +6,8 @@ import com.onianime.allanime.StreamResolver
 import com.onianime.config.AllAnimeConfig
 import com.onianime.metadata.AniListClient
 import com.onianime.metadata.AniListMedia
+import com.onianime.metadata.AniSkipClient
+import com.onianime.metadata.SkipInterval
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
@@ -21,6 +23,7 @@ class CatalogRepository(
     private val config: AllAnimeConfig = AllAnimeConfig.BAKED_IN,
     private val aniList: AniListClient = AniListClient(),
     private val allClient: AllAnimeClient = AllAnimeClient(config),
+    private val aniSkip: AniSkipClient = AniSkipClient(),
 ) {
     private val resolver = StreamResolver(allClient, config)
 
@@ -68,6 +71,12 @@ class CatalogRepository(
 
     suspend fun streams(allAnimeId: String, mode: String, episode: String): List<Stream> =
         resolver.resolve(allAnimeId, mode, episode)
+
+    /** AniSkip op/ed intervals for a show's episode (empty if AniList has no MAL id or no data). */
+    suspend fun skipTimes(malId: Int, episode: Int, episodeLengthSec: Int = 0): List<SkipInterval> =
+        withContext(Dispatchers.IO) {
+            runCatching { aniSkip.skipTimes(malId, episode, episodeLengthSec) }.getOrDefault(emptyList())
+        }
 
     private fun sanitize(title: String): String =
         title.replace(Regex("[^A-Za-z0-9 ]"), " ").replace(Regex("\\s+"), " ").trim()

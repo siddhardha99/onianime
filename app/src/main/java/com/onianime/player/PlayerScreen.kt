@@ -1,6 +1,7 @@
 package com.onianime.player
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +27,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -101,6 +104,26 @@ fun PlayerScreen(vm: AppViewModel, userAgent: String) {
             Column {
                 Text("${media?.displayTitle ?: ""}  •  EPISODE ${vm.episodes.getOrNull(vm.playerIndex) ?: ""}", color = Oni.Muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 Text("Episode ${vm.episodes.getOrNull(vm.playerIndex) ?: ""}", color = Oni.TextHi, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // AniSkip: Skip Intro/Outro button while the playhead is inside an op/ed interval.
+        val activeSkip = vm.skipIntervals.firstOrNull { it.contains(position) }
+        if (activeSkip != null) {
+            val skipFocus = remember { FocusRequester() }
+            var skipFocused by remember { mutableStateOf(false) }
+            LaunchedEffect(activeSkip.type, activeSkip.startMs) { runCatching { skipFocus.requestFocus() } }
+            Box(
+                Modifier.align(Alignment.BottomEnd).padding(end = 40.dp, bottom = 150.dp)
+                    .focusRequester(skipFocus)
+                    .onFocusChanged { skipFocused = it.isFocused }
+                    .clickable { exoPlayer.seekTo(activeSkip.endMs) }
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (skipFocused) Oni.White else Color(0xD9141420))
+                    .border(1.dp, if (skipFocused) Oni.White else Color(0x66FFFFFF), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 28.dp, vertical = 14.dp),
+            ) {
+                Text(activeSkip.label, color = if (skipFocused) Oni.Bg else Oni.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
             }
         }
 

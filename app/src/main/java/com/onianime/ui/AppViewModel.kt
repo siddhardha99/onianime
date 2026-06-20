@@ -10,6 +10,7 @@ import com.onianime.allanime.Stream
 import com.onianime.catalog.CatalogRepository
 import com.onianime.catalog.HomeRow
 import com.onianime.metadata.AniListMedia
+import com.onianime.metadata.SkipInterval
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -59,6 +60,7 @@ class AppViewModel(
         private set
     var playerStatus by mutableStateOf("")
         private set
+    val skipIntervals = mutableStateListOf<SkipInterval>()
 
     var toast by mutableStateOf<String?>(null)
 
@@ -129,6 +131,17 @@ class AppViewModel(
         playerStatus = "Resolving stream…"
         route = Route.Player
         if (continueWatching.none { it.id == media.id }) continueWatching.add(0, media)
+
+        // AniSkip op/ed times (needs MAL id + an integer episode number)
+        skipIntervals.clear()
+        val malId = media.idMal
+        val epNum = episodes[index].toFloatOrNull()?.toInt()
+        if (malId != null && epNum != null) {
+            viewModelScope.launch {
+                val times = runCatching { repo.skipTimes(malId, epNum) }.getOrDefault(emptyList())
+                if (playerIndex == index) { skipIntervals.clear(); skipIntervals.addAll(times) }
+            }
+        }
         viewModelScope.launch {
             val streams = runCatching { repo.streams(id, mode, episodes[index]) }.getOrDefault(emptyList())
             val best = streams.firstOrNull { it.url.startsWith("http") }
