@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
@@ -56,7 +57,7 @@ fun DetailScreen(vm: AppViewModel) {
         Column(Modifier.padding(start = 56.dp, top = 44.dp, end = 56.dp).fillMaxWidth()) {
             Text(media.genres.take(3).joinToString("  •  ").uppercase(), color = Oni.Accent, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
             Spacer(Modifier.height(12.dp))
-            Text(media.displayTitle, color = Oni.TextHi, fontSize = 50.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, modifier = Modifier.widthIn(max = 920.dp))
+            Text(media.displayTitle, color = Oni.TextHi, fontSize = 46.sp, lineHeight = 50.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 920.dp))
             Spacer(Modifier.height(18.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(11.dp), verticalAlignment = Alignment.CenterVertically) {
                 media.seasonYear?.let { Chip("$it") }

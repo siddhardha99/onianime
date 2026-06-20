@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
@@ -147,7 +148,16 @@ private fun HeroText(media: AniListMedia, vm: AppViewModel) {
             color = Oni.Accent, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold,
         )
         Spacer(Modifier.height(12.dp))
-        Text(media.displayTitle, color = Oni.TextHi, fontSize = 56.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2)
+        Text(
+            media.displayTitle,
+            color = Oni.TextHi,
+            fontSize = 46.sp,
+            lineHeight = 50.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 820.dp),
+        )
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             media.scoreOutOfTen?.let { Text("★ ${"%.1f".format(it)}", color = Oni.Green, fontSize = 17.sp, fontWeight = FontWeight.SemiBold) }
@@ -159,6 +169,17 @@ private fun HeroText(media: AniListMedia, vm: AppViewModel) {
         media.plainDescription?.let {
             Text(it, color = Color(0xFFB8B8C8), fontSize = 18.sp, maxLines = 3, modifier = Modifier.widthIn(max = 620.dp))
         }
+    }
+}
+
+/** Netflix-style contextual pill: rank for Trending, "NEW" for recent, score otherwise. */
+private fun badgeFor(rowTitle: String, index: Int, media: AniListMedia): String? {
+    val sc = media.scoreOutOfTen
+    return when {
+        rowTitle == "Trending Now" && index < 10 -> "#${index + 1}"
+        rowTitle == "Recently Updated" -> "NEW"
+        sc != null && sc >= 7.5 -> "★ ${"%.1f".format(sc)}"
+        else -> null
     }
 }
 
@@ -175,7 +196,7 @@ private fun RowSection(
             horizontalArrangement = Arrangement.spacedBy(20.dp),
             contentPadding = PaddingValues(horizontal = 48.dp, vertical = 6.dp),
         ) {
-            items(row.items, key = { it.id }) { media ->
+            itemsIndexed(row.items, key = { _, m -> m.id }) { index, media ->
                 if (landscape) {
                     PosterCard(
                         imageUrl = media.bannerImage ?: media.coverImage,
@@ -197,6 +218,7 @@ private fun RowSection(
                         seedColor = parseColor(media.coverColor),
                         title = media.displayTitle,
                         width = 200.dp, height = 286.dp,
+                        topBadge = badgeFor(row.title, index, media),
                         onFocused = { onFocusedMedia(media) },
                         onClick = { onClick(media) },
                     )

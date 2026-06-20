@@ -42,6 +42,7 @@ fun PosterCard(
     width: Dp,
     height: Dp,
     modifier: Modifier = Modifier,
+    topBadge: String? = null,
     onFocused: () -> Unit = {},
     onClick: () -> Unit = {},
     bottomOverlay: (@Composable BoxScope.() -> Unit)? = null,
@@ -67,6 +68,15 @@ fun PosterCard(
                 Brush.verticalGradient(0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.82f))
             )
         )
+        if (topBadge != null) {
+            Box(
+                Modifier.align(Alignment.TopStart).padding(8.dp)
+                    .clip(RoundedCornerShape(6.dp)).background(Color(0xCC0A0A0F))
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            ) {
+                Text(topBadge, color = Oni.Accent, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+            }
+        }
         if (bottomOverlay != null) {
             bottomOverlay()
         } else {
