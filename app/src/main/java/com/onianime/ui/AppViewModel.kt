@@ -19,6 +19,7 @@ import com.onianime.metadata.AniListMedia
 import com.onianime.metadata.SkipInterval
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -59,6 +60,11 @@ class AppViewModel(
     var query by mutableStateOf("")
         private set
     val results = mutableStateListOf<AniListMedia>()
+    val recentSearches = mutableStateListOf<String>()
+    var searchLoading by mutableStateOf(false)
+        private set
+    var activeGenre by mutableStateOf<String?>(null)
+        private set
     private var searchJob: Job? = null
 
     // Detail
@@ -103,6 +109,9 @@ class AppViewModel(
                 settings = s
                 if (!settingsLoaded) { mode = s.defaultMode; settingsLoaded = true }
             }
+        }
+        viewModelScope.launch {
+            store.recentSearches.collect { list -> recentSearches.clear(); recentSearches.addAll(list) }
         }
     }
 
@@ -174,12 +183,36 @@ class AppViewModel(
 
     fun search(newQuery: String) {
         query = newQuery
+        activeGenre = null
         searchJob?.cancel()
-        if (newQuery.isBlank()) { results.clear(); return }
+        if (newQuery.isBlank()) { results.clear(); searchLoading = false; return }
+        searchLoading = true
         searchJob = viewModelScope.launch {
+            delay(300) // debounce rapid typing
             val found = runCatching { repo.search(newQuery) }.getOrDefault(emptyList())
             results.clear(); results.addAll(found)
+            searchLoading = false
         }
+    }
+
+    /** Browse by genre (toggles off if the same genre is tapped again). */
+    fun selectGenre(genre: String) {
+        searchJob?.cancel()
+        if (activeGenre == genre) { activeGenre = null; results.clear(); searchLoading = false; return }
+        activeGenre = genre
+        query = ""
+        searchLoading = true
+        searchJob = viewModelScope.launch {
+            val found = runCatching { repo.homeRow(sort = "POPULARITY_DESC", genre = genre, perPage = 40) }.getOrDefault(emptyList())
+            results.clear(); results.addAll(found)
+            searchLoading = false
+        }
+    }
+
+    /** Remember the current query (called when the user opens a search result). */
+    fun recordSearch() {
+        val q = query
+        if (q.isNotBlank()) viewModelScope.launch { store.addRecentSearch(q) }
     }
 
     // ---- My List ----

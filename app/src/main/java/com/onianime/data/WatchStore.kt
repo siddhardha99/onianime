@@ -51,6 +51,22 @@ class WatchStore(private val context: Context) {
     private val progressKey = stringPreferencesKey("progress")
     private val myListKey = stringPreferencesKey("my_list")
     private val settingsKey = stringPreferencesKey("settings")
+    private val recentKey = stringPreferencesKey("recent_searches")
+
+    val recentSearches: Flow<List<String>> = context.dataStore.data.map { prefs ->
+        prefs[recentKey]?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrDefault(emptyList()) } ?: emptyList()
+    }
+
+    suspend fun addRecentSearch(query: String) {
+        val q = query.trim()
+        if (q.isEmpty()) return
+        context.dataStore.edit { prefs ->
+            val list = (prefs[recentKey]?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrDefault(emptyList()) } ?: emptyList()).toMutableList()
+            list.removeAll { it.equals(q, ignoreCase = true) }
+            list.add(0, q)
+            prefs[recentKey] = json.encodeToString(list.take(8))
+        }
+    }
 
     val settings: Flow<Settings> = context.dataStore.data.map { prefs ->
         val s = prefs[settingsKey]
