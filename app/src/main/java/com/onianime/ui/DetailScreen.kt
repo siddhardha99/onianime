@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -39,6 +40,8 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.onianime.ui.theme.Oni
 import com.onianime.ui.theme.focusCard
+
+private const val RANGE_SIZE = 100
 
 @Composable
 fun DetailScreen(vm: AppViewModel) {
@@ -80,12 +83,38 @@ fun DetailScreen(vm: AppViewModel) {
             }
         }
 
-        // Episodes rail
+        // Episodes rail with range buckets (for shows with hundreds/thousands of episodes)
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(bottom = 30.dp)) {
-            Text("Episodes", color = Oni.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 56.dp, bottom = 14.dp))
+            Row(Modifier.padding(start = 56.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Episodes", color = Oni.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                if (vm.episodes.isNotEmpty()) {
+                    Text("  (${vm.episodes.size})", color = Oni.Muted, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            // Group episode indices into buckets of RANGE_SIZE.
+            val ranges = remember(vm.episodes.size) { vm.episodes.indices.chunked(RANGE_SIZE) }
+            var rangeIndex by remember(media.id, vm.episodes.size) { mutableStateOf(0) }
+
+            if (ranges.size > 1) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(start = 56.dp, end = 40.dp),
+                ) {
+                    itemsIndexed(ranges) { i, idx ->
+                        val first = vm.episodes[idx.first()]
+                        val last = vm.episodes[idx.last()]
+                        RangeChip(label = if (first == last) first else "$first-$last", selected = i == rangeIndex) { rangeIndex = i }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+            }
+
+            val current = ranges.getOrNull(rangeIndex) ?: vm.episodes.indices.toList()
             LazyRow(horizontalArrangement = Arrangement.spacedBy(18.dp), contentPadding = PaddingValues(start = 56.dp, end = 40.dp)) {
-                itemsIndexed(vm.episodes, key = { _, ep -> ep }) { index, ep ->
-                    EpisodeCard(epLabel = ep, seedColor = parseColor(media.coverColor), thumb = media.coverImage, onClick = { vm.playEpisode(index) })
+                items(current, key = { it }) { globalIndex ->
+                    val ep = vm.episodes[globalIndex]
+                    EpisodeCard(epLabel = ep, seedColor = parseColor(media.coverColor), thumb = media.coverImage, onClick = { vm.playEpisode(globalIndex) })
                 }
             }
         }
@@ -96,6 +125,24 @@ fun DetailScreen(vm: AppViewModel) {
 private fun Chip(text: String, accent: Color = Oni.Text) {
     Box(Modifier.clip(RoundedCornerShape(8.dp)).border(1.dp, Oni.SurfaceStrong, RoundedCornerShape(8.dp)).background(Oni.Surface).padding(horizontal = 14.dp, vertical = 7.dp)) {
         Text(text, color = accent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun RangeChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    Box(
+        Modifier.onFocusChanged { focused = it.isFocused }.clickable { onClick() }
+            .clip(RoundedCornerShape(9.dp)).focusCard(focused, radius = 9.dp)
+            .background(when { focused -> Oni.White; selected -> Oni.Accent; else -> Oni.Surface })
+            .padding(horizontal = 18.dp, vertical = 9.dp),
+    ) {
+        Text(
+            label,
+            color = when { focused -> Oni.Bg; selected -> Oni.White; else -> Oni.Text2 },
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 
