@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -105,20 +106,25 @@ fun PlayerScreen(vm: AppViewModel, userAgent: String) {
 
         // Bottom controls
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().background(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.88f))).padding(start = 40.dp, end = 40.dp, top = 26.dp, bottom = 30.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                if (vm.playerIndex - 1 in vm.episodes.indices) ControlButton("⏮") { vm.prevEpisode() }
+                ControlButton("«10") { exoPlayer.seekTo((exoPlayer.currentPosition - 10_000).coerceAtLeast(0)) }
                 ControlButton(if (playing) "⏸" else "▶") { exoPlayer.playWhenReady = !exoPlayer.playWhenReady }
+                ControlButton("10»") {
+                    val d = exoPlayer.duration
+                    val t = exoPlayer.currentPosition + 10_000
+                    exoPlayer.seekTo(if (d > 0) t.coerceAtMost(d) else t)
+                }
+                if (vm.playerIndex + 1 in vm.episodes.indices) ControlButton("⏭") { vm.nextEpisode() }
                 Text(mmss(position), color = Oni.Text2, fontSize = 14.sp, modifier = Modifier.width(52.dp))
                 Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Oni.SurfaceStrong)) {
                     val frac = if (duration > 0) position.toFloat() / duration else 0f
                     Box(Modifier.fillMaxWidth(frac).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Oni.Accent))
                 }
                 Text(if (duration > 0) mmss(duration) else "--:--", color = Oni.Text2, fontSize = 14.sp, modifier = Modifier.width(52.dp))
-                if (vm.playerIndex + 1 in vm.episodes.indices) {
-                    ControlButton("⏭") { vm.nextEpisode() }
-                }
             }
             Spacer(Modifier.height(12.dp))
-            Text("◀ ▶ controls  ·  Enter play/pause  ·  Esc back", color = Oni.Faint, fontSize = 12.sp)
+            Text("←/→ move between controls  ·  «10 / 10» seek 10s  ·  Enter activate  ·  Back to episodes", color = Oni.Faint, fontSize = 12.sp)
         }
     }
 }
@@ -127,12 +133,14 @@ fun PlayerScreen(vm: AppViewModel, userAgent: String) {
 private fun ControlButton(glyph: String, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Box(
-        Modifier.size(50.dp).onFocusChanged { focused = it.isFocused }.clickable { onClick() }
+        Modifier.height(50.dp).widthIn(min = 50.dp)
+            .onFocusChanged { focused = it.isFocused }.clickable { onClick() }
             .focusCard(focused, radius = 25.dp).clip(RoundedCornerShape(25.dp))
-            .background(if (focused) Oni.White else Oni.SurfaceStrong),
+            .background(if (focused) Oni.White else Oni.SurfaceStrong)
+            .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(glyph, color = if (focused) Oni.Bg else Oni.White, fontSize = 18.sp)
+        Text(glyph, color = if (focused) Oni.Bg else Oni.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
     }
 }
 

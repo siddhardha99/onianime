@@ -92,7 +92,8 @@ fun SearchScreen(vm: AppViewModel) {
 @Composable
 private fun Key(key: String, vm: AppViewModel, modifier: Modifier) {
     var focused by remember { mutableStateOf(false) }
-    val label = when (key) { "SPACE" -> "␣"; "DEL" -> "⌫"; "CLR" -> "✕"; else -> key }
+    val label = when (key) { "SPACE" -> "SPACE"; "DEL" -> "DEL"; "CLR" -> "CLEAR"; else -> key }
+    val small = key.length > 1
     Box(
         modifier.height(64.dp)
             .onFocusChanged { focused = it.isFocused }
@@ -101,7 +102,7 @@ private fun Key(key: String, vm: AppViewModel, modifier: Modifier) {
             .background(if (focused) Oni.Accent else Oni.Surface),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = if (focused) Oni.White else Oni.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text(label, color = if (focused) Oni.White else Oni.Text, fontSize = if (small) 13.sp else 22.sp, fontWeight = FontWeight.Bold)
     }
 }
 
