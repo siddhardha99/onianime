@@ -66,9 +66,11 @@ object LinkResolver {
         val refr = M3U8_REFERER.find(response)?.groupValues?.get(1) ?: config.refr
         val masterUrl = rawLinks.first().substringAfter(">").trim()
         val relative = masterUrl.substringBeforeLast("/", "") + "/"
+        // The master playlist itself is an adaptive ("Auto") source ExoPlayer can switch bitrate on.
+        val auto = Stream("auto", masterUrl, providerKey, refr, isHls = true)
         val playlist = client.getRaw(masterUrl, refr)
         if (!playlist.contains("EXTM3U")) {
-            return listOf(Stream("0", masterUrl, providerKey, refr, isHls = true))
+            return listOf(auto)
         }
 
         val streams = mutableListOf<Stream>()
@@ -87,9 +89,9 @@ object LinkResolver {
                 }
             }
         }
-        // Fall back to the master itself if no variants were parsed (ExoPlayer can adapt from it).
-        return streams.ifEmpty { listOf(Stream("0", masterUrl, providerKey, refr, isHls = true)) }
-            .sortedByDescending { it.heightOrZero }
+        // Offer Auto (adaptive) first, then the fixed-resolution variants.
+        if (streams.isEmpty()) return listOf(auto)
+        return listOf(auto) + streams.sortedByDescending { it.heightOrZero }
     }
 
     /** Legacy wixmp packed multi-bitrate url (".urlset/.../,480,720,1080,/mp4/file.urlset/..."). */

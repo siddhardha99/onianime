@@ -302,15 +302,18 @@ class AppViewModel(
     private fun pickPreferredStream(streams: List<Stream>): Stream? {
         if (streams.isEmpty()) return null
         return when (val q = settings.preferredQuality) {
-            "best" -> streams.first()
+            "best" -> streams.firstOrNull { it.quality == "auto" } ?: streams.first() // Auto = adaptive
             "worst" -> streams.lastOrNull { it.heightOrZero > 0 } ?: streams.last()
-            else -> streams.firstOrNull { it.heightOrZero == q.toIntOrNull() } ?: streams.first()
+            else -> streams.firstOrNull { it.heightOrZero == q.toIntOrNull() }
+                ?: streams.firstOrNull { it.quality == "auto" } ?: streams.first()
         }
     }
 
-    /** Current quality label, e.g. "1080p" or "auto". */
-    fun currentQualityLabel(): String =
-        playerStream?.let { if (it.heightOrZero > 0) "${it.heightOrZero}p" else "auto" } ?: "—"
+    private fun qualityLabel(s: Stream): String =
+        when { s.quality == "auto" -> "Auto"; s.heightOrZero > 0 -> "${s.heightOrZero}p"; else -> "auto" }
+
+    /** Current quality label, e.g. "Auto", "1080p". */
+    fun currentQualityLabel(): String = playerStream?.let { qualityLabel(it) } ?: "—"
 
     /** Switch to the next available quality, preserving position via saved progress. */
     fun cycleQuality() {
@@ -319,7 +322,7 @@ class AppViewModel(
         val i = playerStreams.indexOfFirst { it.url == cur.url }.coerceAtLeast(0)
         val next = playerStreams[(i + 1) % playerStreams.size]
         playerStream = next
-        toast = "Quality: ${if (next.heightOrZero > 0) "${next.heightOrZero}p" else "auto"}"
+        toast = "Quality: ${qualityLabel(next)}"
     }
 
     /** Toggle SUB/DUB and re-resolve the current episode in the new mode. */

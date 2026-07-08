@@ -56,11 +56,15 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import androidx.tv.material3.Text
 import com.onianime.ui.AppViewModel
 import com.onianime.ui.theme.Oni
@@ -88,10 +92,30 @@ fun PlayerScreen(vm: AppViewModel, userAgent: String) {
         val rootFocus = remember { FocusRequester() }
 
         val exoPlayer = remember(stream.url) {
-            val factory = DefaultHttpDataSource.Factory().setUserAgent(userAgent).setAllowCrossProtocolRedirects(true)
-            stream.referer?.let { factory.setDefaultRequestProperties(mapOf("Referer" to it)) }
-            ExoPlayer.Builder(context).setMediaSourceFactory(DefaultMediaSourceFactory(factory)).build().apply {
-                setMediaItem(MediaItem.fromUri(stream.url))
+            // OkHttp data source: connection reuse + retries (better for many small HLS segments).
+            val client = OkHttpClient.Builder()
+                .retryOnConnectionFailure(true)
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .build()
+            val httpFactory = OkHttpDataSource.Factory(client).setUserAgent(userAgent)
+            stream.referer?.let { httpFactory.setDefaultRequestProperties(mapOf("Referer" to it)) }
+
+            val mediaItem = MediaItem.fromUri(stream.url)
+            val source = if (stream.isHls) {
+                HlsMediaSource.Factory(httpFactory).setAllowChunklessPreparation(true).createMediaSource(mediaItem)
+            } else {
+                ProgressiveMediaSource.Factory(httpFactory).createMediaSource(mediaItem)
+            }
+
+            // Larger buffers => fewer rebuffers.
+            val loadControl = DefaultLoadControl.Builder()
+                .setBufferDurationsMs(30_000, 60_000, 2_500, 5_000)
+                .setPrioritizeTimeOverSizeThresholds(true)
+                .build()
+
+            ExoPlayer.Builder(context).setLoadControl(loadControl).build().apply {
+                setMediaSource(source)
                 prepare()
                 val resume = vm.resumePositionMs()
                 if (resume > 0) seekTo(resume)
