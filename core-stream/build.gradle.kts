@@ -7,9 +7,6 @@ kotlin {
 }
 
 dependencies {
-    // JsonElement tree only (no @Serializable classes), so no serialization compiler plugin needed.
-    implementation(libs.kotlinx.serialization.json)
-
     testImplementation(libs.junit)
 }
 

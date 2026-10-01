@@ -7,14 +7,13 @@ kotlin {
 }
 
 dependencies {
-    implementation(project(":core-crypto"))
     implementation(project(":core-config"))
     implementation(project(":core-stream"))
     implementation(libs.okhttp)
-    implementation(libs.kotlinx.coroutines.core)
+    // JsonElement tree only (no @Serializable classes), so no serialization compiler plugin needed.
+    implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
-    testImplementation(libs.kotlinx.coroutines.core)
 }
 
 tasks.withType<Test> {

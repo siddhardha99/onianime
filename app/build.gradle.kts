@@ -16,8 +16,8 @@ android {
         applicationId = "com.onianime"
         minSdk = 23
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
 
     }
 
@@ -54,6 +54,7 @@ dependencies {
     implementation(project(":data-metadata"))
     implementation(project(":data-catalog"))
     implementation(project(":core-config"))
+    implementation(project(":core-stream"))
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.coil.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

@@ -34,7 +34,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.Text
-import com.onianime.config.AllAnimeConfig
 import com.onianime.player.PlayerScreen
 import com.onianime.ui.theme.Oni
 import kotlinx.coroutines.delay
@@ -46,8 +45,6 @@ private const val DESIGN_H = 1080f
 
 @Composable
 fun OnianimeApp(vm: AppViewModel = viewModel()) {
-    val agent = remember { AllAnimeConfig.BAKED_IN.agent }
-
     BackHandler(enabled = vm.route != Route.Home) { vm.back() }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Oni.Bg)) {
@@ -64,7 +61,7 @@ fun OnianimeApp(vm: AppViewModel = viewModel()) {
                 .background(Oni.Bg),
         ) {
             if (vm.route == Route.Player) {
-                PlayerScreen(vm, agent)
+                PlayerScreen(vm)
             } else {
                 Column(Modifier.fillMaxSize()) {
                     TopNav(vm)

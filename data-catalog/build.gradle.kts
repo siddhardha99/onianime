@@ -8,8 +8,11 @@ kotlin {
 
 dependencies {
     implementation(project(":data-allanime"))
+    implementation(project(":data-hianime"))
     implementation(project(":data-metadata"))
     implementation(project(":core-config"))
+    implementation(project(":core-stream"))
+    implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.core)
 
     testImplementation(libs.junit)

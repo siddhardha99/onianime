@@ -28,6 +28,8 @@ include(":app")
 // Pure-Kotlin scraping core (no Android) — see Phase 0 design.
 include(":core-crypto")
 include(":core-config")
+include(":core-stream")
 include(":data-allanime")
+include(":data-hianime")
 include(":data-metadata")
 include(":data-catalog")

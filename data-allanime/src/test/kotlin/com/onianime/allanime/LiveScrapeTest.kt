@@ -3,6 +3,7 @@ package com.onianime.allanime
 import com.onianime.config.AllAnimeConfig
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
+import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -13,6 +14,7 @@ import org.junit.Test
  */
 class LiveScrapeTest {
 
+    @Ignore("AllAnime stopped serving streams on its website in summer 2026 (see OniConfig); kept for reference")
     @Test
     fun resolvesRealStreamForOnePiece() = runBlocking {
         val config = AllAnimeConfig.BAKED_IN

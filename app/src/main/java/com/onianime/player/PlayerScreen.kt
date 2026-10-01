@@ -1,5 +1,6 @@
 package com.onianime.player
 
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -28,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -53,14 +55,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.hls.HlsMediaSource
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import okhttp3.OkHttpClient
@@ -72,8 +76,9 @@ import kotlinx.coroutines.delay
 
 @OptIn(UnstableApi::class)
 @Composable
-fun PlayerScreen(vm: AppViewModel, userAgent: String) {
+fun PlayerScreen(vm: AppViewModel) {
     val stream = vm.playerStream
+    val userAgent = vm.userAgent
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (stream == null) {
             Text(vm.playerStatus.ifEmpty { "Loading…" }, color = Oni.Text, fontSize = 18.sp, modifier = Modifier.align(Alignment.Center))
@@ -81,9 +86,9 @@ fun PlayerScreen(vm: AppViewModel, userAgent: String) {
         }
 
         val context = LocalContext.current
-        var position by remember(stream.url) { mutableLongStateOf(0L) }
-        var duration by remember(stream.url) { mutableLongStateOf(0L) }
-        var playing by remember(stream.url) { mutableStateOf(true) }
+        var position by remember(stream) { mutableLongStateOf(0L) }
+        var duration by remember(stream) { mutableLongStateOf(0L) }
+        var playing by remember(stream) { mutableStateOf(true) }
         var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
 
         var controlsVisible by remember { mutableStateOf(true) }
@@ -91,22 +96,36 @@ fun PlayerScreen(vm: AppViewModel, userAgent: String) {
         val playFocus = remember { FocusRequester() }
         val rootFocus = remember { FocusRequester() }
 
-        val exoPlayer = remember(stream.url) {
+        val exoPlayer = remember(stream) {
             // OkHttp data source: connection reuse + retries (better for many small HLS segments).
             val client = OkHttpClient.Builder()
                 .retryOnConnectionFailure(true)
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .build()
-            val httpFactory = OkHttpDataSource.Factory(client).setUserAgent(userAgent)
-            stream.referer?.let { httpFactory.setDefaultRequestProperties(mapOf("Referer" to it)) }
+            // Referer (+ any extra headers) go on every request: playlist, segments and subtitles.
+            val httpFactory = OkHttpDataSource.Factory(client)
+                .setUserAgent(userAgent)
+                .setDefaultRequestProperties(stream.requestHeaders)
 
-            val mediaItem = MediaItem.fromUri(stream.url)
-            val source = if (stream.isHls) {
-                HlsMediaSource.Factory(httpFactory).setAllowChunklessPreparation(true).createMediaSource(mediaItem)
-            } else {
-                ProgressiveMediaSource.Factory(httpFactory).createMediaSource(mediaItem)
+            // Side-loaded subtitle files (e.g. ZokoAnime's English WebVTT) so CC can toggle them.
+            val subtitles = stream.subtitles.mapIndexed { i, track ->
+                MediaItem.SubtitleConfiguration.Builder(Uri.parse(track.url))
+                    .setId("sub$i")
+                    .setMimeType(track.mimeType)
+                    .setLanguage(track.language)
+                    .setLabel(track.label)
+                    .setSelectionFlags(if (track.isDefault) C.SELECTION_FLAG_DEFAULT else 0)
+                    .build()
             }
+            val mediaItem = MediaItem.Builder()
+                .setUri(stream.url)
+                .setMimeType(if (stream.isHls) MimeTypes.APPLICATION_M3U8 else null)
+                .setSubtitleConfigurations(subtitles)
+                .build()
+            // DefaultMediaSourceFactory picks HLS/progressive from the MIME type and merges the
+            // subtitle files in (HLS chunkless preparation is on by default).
+            val sourceFactory = DefaultMediaSourceFactory(httpFactory)
 
             // Larger buffers => fewer rebuffers.
             val loadControl = DefaultLoadControl.Builder()
@@ -114,20 +133,38 @@ fun PlayerScreen(vm: AppViewModel, userAgent: String) {
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
 
-            ExoPlayer.Builder(context).setLoadControl(loadControl).build().apply {
-                setMediaSource(source)
-                prepare()
-                val resume = vm.resumePositionMs()
-                if (resume > 0) seekTo(resume)
-                playWhenReady = true
-                addListener(object : Player.Listener {
-                    override fun onPlaybackStateChanged(state: Int) {
-                        if (state == Player.STATE_ENDED && vm.settings.autoPlayNext) vm.nextEpisode()
-                    }
-                })
-            }
+            ExoPlayer.Builder(context)
+                .setLoadControl(loadControl)
+                .setMediaSourceFactory(sourceFactory)
+                .build().apply {
+                    trackSelectionParameters = trackSelectionParameters.buildUpon()
+                        .setPreferredTextLanguage("en")
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !vm.subtitlesOn)
+                        .build()
+                    setMediaItem(mediaItem)
+                    prepare()
+                    val resume = vm.resumePositionMs()
+                    if (resume > 0) seekTo(resume)
+                    playWhenReady = true
+                    addListener(object : Player.Listener {
+                        override fun onPlaybackStateChanged(state: Int) {
+                            if (state == Player.STATE_ENDED && vm.settings.autoPlayNext) vm.nextEpisode()
+                        }
+
+                        override fun onPlayerError(error: PlaybackException) {
+                            vm.onPlaybackError(stream, error.errorCodeName)
+                        }
+                    })
+                }
         }
-        DisposableEffect(stream.url) {
+        // CC toggle: enable/disable the text track without rebuilding the player.
+        val subtitlesOn = vm.subtitlesOn
+        LaunchedEffect(exoPlayer, subtitlesOn) {
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subtitlesOn)
+                .build()
+        }
+        DisposableEffect(stream) {
             onDispose {
                 if (exoPlayer.duration > 0) vm.saveProgress(exoPlayer.currentPosition, exoPlayer.duration)
                 exoPlayer.release()
@@ -167,11 +204,15 @@ fun PlayerScreen(vm: AppViewModel, userAgent: String) {
                     } else false
                 },
         ) {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { PlayerView(it).apply { player = exoPlayer; useController = false } },
-                update = { it.resizeMode = resizeMode },
-            )
+            // A new stream means a new ExoPlayer; key the view on it so the new player gets a surface
+            // (AndroidView's factory only runs once, which left a quality switch with a black picture).
+            key(exoPlayer) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { PlayerView(it).apply { player = exoPlayer; useController = false } },
+                    update = { it.player = exoPlayer; it.resizeMode = resizeMode },
+                )
+            }
 
             // AniSkip — auto-skip (setting) or a focusable button while inside an op/ed interval.
             val activeSkip = vm.skipIntervals.firstOrNull { it.contains(position) }
@@ -277,7 +318,8 @@ fun PlayerScreen(vm: AppViewModel, userAgent: String) {
                                 Control("⤢ ${aspectLabel(resizeMode)}", small = true) { resizeMode = nextResize(resizeMode) }
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Control("CC", small = true) { vm.toast = "Subtitles are baked into the video (soft subs coming later)" }
+                                val hasSubs = stream.subtitles.isNotEmpty()
+                                Control(if (hasSubs && vm.subtitlesOn) "CC ✓" else "CC", small = true) { vm.toggleSubtitles() }
                                 Control(vm.mode.uppercase(), small = true) { vm.switchAudio() }
                                 Control("≣ Episodes", small = true) { vm.back() }
                                 Control("⚙", small = true) { vm.toast = "Settings — coming soon" }

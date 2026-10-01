@@ -7,19 +7,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.onianime.allanime.ConfigClient
-import com.onianime.allanime.Stream
 import com.onianime.catalog.CatalogRepository
 import com.onianime.catalog.HomeRow
-import com.onianime.config.AllAnimeConfig
+import com.onianime.catalog.RemoteConfigClient
+import com.onianime.catalog.SourceShow
+import com.onianime.config.OniConfig
 import com.onianime.data.Settings
 import com.onianime.data.ShowProgress
 import com.onianime.data.WatchStore
 import com.onianime.metadata.AniListMedia
 import com.onianime.metadata.SkipInterval
+import com.onianime.stream.Stream
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -38,8 +41,12 @@ class AppViewModel(
     constructor(app: Application) : this(app, CatalogRepository())
 
     private val store = WatchStore(app)
-    private val configClient = ConfigClient()
-    private var currentConfig = AllAnimeConfig.BAKED_IN
+    private val configClient = RemoteConfigClient()
+    private var currentConfig = OniConfig.BAKED_IN
+
+    /** User-Agent the player sends; follows the remote config (stream hosts can check it). */
+    var userAgent by mutableStateOf(OniConfig.BAKED_IN.agent)
+        private set
 
     var route by mutableStateOf(Route.Home)
         private set
@@ -72,11 +79,13 @@ class AppViewModel(
         private set
     var mode by mutableStateOf("sub")
         private set
-    var detailAllAnimeId by mutableStateOf<String?>(null)
+    /** Where this show's streams come from (which source + its id/episodes there). */
+    var detailSource by mutableStateOf<SourceShow?>(null)
         private set
     val episodes = mutableStateListOf<String>()
     var detailStatus by mutableStateOf("")
         private set
+    private var loadJob: Job? = null
 
     // Player
     private var playerMedia: AniListMedia? = null
@@ -88,12 +97,17 @@ class AppViewModel(
         private set
     val skipIntervals = mutableStateListOf<SkipInterval>()
     val playerStreams = mutableStateListOf<Stream>() // distinct qualities for the current episode
+    private var playJob: Job? = null
+
+    /** The viewer's CC choice this session; null = follow the audio (on for SUB, off for DUB). */
+    private var subtitlesChoice by mutableStateOf<Boolean?>(null)
+    val subtitlesOn: Boolean get() = subtitlesChoice ?: (mode == "sub")
 
     var toast by mutableStateOf<String?>(null)
 
     init {
         loadHome()
-        viewModelScope.launch { refreshConfig() } // pull latest allanime key/hash from GitHub
+        viewModelScope.launch { refreshConfig() } // pull the latest source config from GitHub
         viewModelScope.launch {
             store.progress.collect { list ->
                 progressByShow = list.associateBy { it.media.id }
@@ -122,11 +136,13 @@ class AppViewModel(
         viewModelScope.launch { store.saveSettings(s) }
     }
 
-    /** Self-heal: fetch the latest allanime.json from the onianime-config repo; rebuild the repo if it changed. */
+    /** Self-heal: fetch the latest onianime.json from the onianime-config repo; rebuild the repo if it changed. */
     private suspend fun refreshConfig(): Boolean {
-        val fresh = withContext(Dispatchers.IO) { configClient.fetch() }
+        // Fall back to what we already have, so a failed fetch never discards a fix pulled earlier.
+        val fresh = withContext(Dispatchers.IO) { configClient.fetch(fallback = currentConfig) }
         if (fresh != currentConfig) {
             currentConfig = fresh
+            userAgent = fresh.agent
             repo = CatalogRepository(fresh)
             return true
         }
@@ -154,27 +170,48 @@ class AppViewModel(
     }
 
     private fun loadEpisodes() {
-        val media = detailMedia ?: return
-        detailAllAnimeId = null
+        val snapshot = detailMedia ?: return
+        val requestMode = mode
+        detailSource = null
         episodes.clear()
         detailStatus = "Finding source…"
-        viewModelScope.launch {
-            var id = runCatching { repo.resolveAllAnimeId(media, mode) }.getOrNull()
-            var eps = id?.let { runCatching { repo.episodes(it, mode) }.getOrDefault(emptyList()) } ?: emptyList()
-            // self-heal: allanime may have rotated its key/hash — refresh config and retry once
-            if ((id == null || eps.isEmpty()) && refreshConfig()) {
-                id = runCatching { repo.resolveAllAnimeId(media, mode) }.getOrNull()
-                eps = id?.let { runCatching { repo.episodes(it, mode) }.getOrDefault(emptyList()) } ?: emptyList()
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
+            // Only write results while this is still the page on screen (a newer load may have started).
+            fun stillCurrent() = isActive && detailMedia?.id == snapshot.id && mode == requestMode
+
+            // Shows opened from Continue Watching / My List are saved snapshots: refresh them so an
+            // airing show's episode count is current. Falls back to the snapshot when offline.
+            val media = attempt { repo.media(snapshot.id) } ?: snapshot
+            if (!stillCurrent()) return@launch
+            detailMedia = media
+
+            var found = attempt { repo.findSource(media, requestMode) }
+            // self-heal: a source may have moved — refresh config and retry once
+            if (found?.show == null && refreshConfig()) {
+                found = attempt { repo.findSource(media, requestMode) }
             }
-            if (id == null) {
-                detailStatus = "No source found for this title"
+            if (!stillCurrent()) return@launch
+            val show = found?.show
+            if (show == null) {
+                val why = found?.errors?.lastOrNull()?.let { " ($it)" }.orEmpty()
+                detailStatus = if (media.airedEpisodes == 0) "No episodes have aired yet" else "No source found for this title$why"
                 return@launch
             }
-            detailAllAnimeId = id
-            episodes.clear(); episodes.addAll(eps)
-            detailStatus = if (eps.isEmpty()) "No episodes available" else ""
+            detailSource = show
+            episodes.clear(); episodes.addAll(show.episodes)
+            detailStatus = ""
         }
     }
+
+    /** runCatching that lets coroutine cancellation through, so a cancelled load stops instead of writing stale results. */
+    private inline fun <T> attempt(block: () -> T): T? =
+        try {
+            block()
+        } catch (e: Throwable) {
+            if (e is CancellationException) throw e
+            null
+        }
 
     fun toggleMode() {
         mode = if (mode == "sub") "dub" else "sub"
@@ -245,6 +282,16 @@ class AppViewModel(
         }
     }
 
+    /**
+     * Episode index to resume [showId] at. Matched by the saved episode label first, because a
+     * different source can number its list differently (e.g. AllAnime's "0"/"12.5" entries).
+     */
+    fun resumeIndex(showId: Int): Int {
+        val p = progressByShow[showId] ?: return 0
+        val byLabel = episodes.indexOf(p.lastEpisodeLabel)
+        return if (byLabel >= 0) byLabel else p.lastEpisodeIndex.coerceIn(0, (episodes.size - 1).coerceAtLeast(0))
+    }
+
     /** Saved resume position (ms) for the currently-playing episode; 0 if none or finished. */
     fun resumePositionMs(): Long {
         val media = playerMedia ?: return 0
@@ -263,8 +310,10 @@ class AppViewModel(
     /** Resolve and start playback of [index] in the current detail's episode list. */
     fun playEpisode(index: Int) {
         val media = detailMedia ?: return
-        val id = detailAllAnimeId ?: return
+        val show = detailSource ?: return
         if (index !in episodes.indices) return
+        val label = episodes[index]
+        val requestMode = mode
         playerMedia = media
         playerIndex = index
         playerStream = null
@@ -272,7 +321,7 @@ class AppViewModel(
         route = Route.Player
 
         // Register the show in Continue Watching without clobbering saved episode positions.
-        viewModelScope.launch { store.markStarted(media, index, episodes[index]) }
+        viewModelScope.launch { store.markStarted(media, index, label) }
 
         // AniSkip op/ed times (needs MAL id + an integer episode number)
         skipIntervals.clear()
@@ -285,16 +334,60 @@ class AppViewModel(
             }
         }
         playerStreams.clear()
-        viewModelScope.launch {
-            suspend fun resolve() = runCatching { repo.streams(id, mode, episodes[index]) }
-                .getOrDefault(emptyList()).filter { it.url.startsWith("http") }
-            var streams = resolve()
-            if (streams.isEmpty() && refreshConfig()) streams = resolve() // self-heal retry
-            val distinct = streams.distinctBy { it.heightOrZero }
+        playJob?.cancel()
+        playJob = viewModelScope.launch {
+            suspend fun resolve() = attempt { repo.streams(media, detailSource ?: show, requestMode, label) }
+            var result = resolve()
+            if (result?.streams.isNullOrEmpty() && refreshConfig()) result = resolve() // self-heal retry
+            // The viewer may have moved on (another episode/show) while this was resolving.
+            if (!isActive || playerMedia?.id != media.id || playerIndex != index) return@launch
+            // Another source rescued this episode: start there next time too.
+            if (result != null && result.streams.isNotEmpty() && detailMedia?.id == media.id &&
+                result.show.provider != detailSource?.provider
+            ) {
+                detailSource = result.show
+            }
+            val distinct = result?.streams.orEmpty().distinctBy { it.heightOrZero }
             playerStreams.clear(); playerStreams.addAll(distinct)
             val best = pickPreferredStream(distinct)
-            if (best == null) playerStatus = "No playable stream for episode ${episodes[index]}"
-            else { playerStream = best; playerStatus = "" }
+            if (best == null) {
+                val why = result?.errors?.lastOrNull()?.let { " ($it)" }.orEmpty()
+                playerStatus = "No playable ${requestMode.uppercase()} stream for episode $label$why"
+            } else {
+                playerStream = best; playerStatus = ""
+            }
+        }
+    }
+
+    /** CC button: show/hide the side-loaded subtitle track. */
+    fun toggleSubtitles() {
+        if (playerStream?.subtitles.isNullOrEmpty()) {
+            toast = "No separate subtitles for this stream"
+            return
+        }
+        subtitlesChoice = !subtitlesOn
+        toast = if (subtitlesOn) "Subtitles on" else "Subtitles off"
+    }
+
+    /**
+     * The player couldn't play [failed]. A subtitle file that won't load fails the whole source, so
+     * first retry the same quality without subtitles; then fall back to the next quality; else explain.
+     */
+    fun onPlaybackError(failed: Stream, reason: String) {
+        val current = playerStream ?: return
+        if (current != failed) return // an error from a player that was already being replaced
+        if (current.subtitles.isNotEmpty()) {
+            toast = "Retrying without subtitles"
+            playerStream = current.copy(subtitles = emptyList())
+            return
+        }
+        val next = playerStreams.dropWhile { it.url != current.url }.drop(1).firstOrNull()
+        if (next != null) {
+            toast = "Couldn't play ${qualityLabel(current)}, trying ${qualityLabel(next)}"
+            playerStream = next
+        } else {
+            playerStream = null
+            playerStatus = "Couldn't play episode ${episodes.getOrNull(playerIndex) ?: ""} ($reason)"
         }
     }
 
@@ -337,7 +430,7 @@ class AppViewModel(
 
     /** Hardware/remote Back. Returns false when already at Home (let the system handle exit). */
     fun back(): Boolean = when (route) {
-        Route.Player -> { route = Route.Detail; true }
+        Route.Player -> { playJob?.cancel(); route = Route.Detail; true }
         Route.Detail, Route.Search, Route.MyList, Route.Settings -> { route = Route.Home; true }
         Route.Home -> false
     }

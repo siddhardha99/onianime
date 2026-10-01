@@ -24,12 +24,29 @@ data class AniListMedia(
     val coverImage: String?,
     val bannerImage: String?,
     val coverColor: String?,
+    /** Number of the next episode to air, or null when nothing is scheduled (finished/hiatus). */
+    val nextAiringEpisode: Int? = null,
 ) {
     val displayTitle: String get() = english ?: romaji ?: native ?: "Unknown"
 
     /** All title variants, used to match this show against allanime's (often garbage) names. */
     val allTitles: List<String>
         get() = listOfNotNull(romaji, english, native).plus(synonyms).distinct()
+
+    /** Latin-script titles worth typing into a site's search box, most likely match first. */
+    val searchTitles: List<String>
+        get() = listOfNotNull(english, romaji).plus(synonyms).distinct()
+
+    /**
+     * Episodes released so far: up to the next airing one for ongoing shows, everything for
+     * finished ones, null when unknown.
+     */
+    val airedEpisodes: Int?
+        get() = when {
+            nextAiringEpisode != null -> (nextAiringEpisode - 1).coerceAtLeast(0)
+            status == "NOT_YET_RELEASED" -> 0
+            else -> episodes
+        }
 
     val scoreOutOfTen: Double? get() = averageScore?.let { it / 10.0 }
 

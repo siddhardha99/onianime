@@ -99,7 +99,7 @@ fun DetailScreen(vm: AppViewModel) {
                         else -> "▶  Play"
                     }
                     PrimaryButton(resumeLabel) {
-                        if (vm.episodes.isNotEmpty()) vm.playEpisode(progress?.lastEpisodeIndex ?: 0)
+                        if (vm.episodes.isNotEmpty()) vm.playEpisode(vm.resumeIndex(media.id))
                     }
                     val inList = vm.isInMyList(media.id)
                     ListButton(if (inList) "✓  My List" else "＋  My List", inList) { vm.toggleMyList() }

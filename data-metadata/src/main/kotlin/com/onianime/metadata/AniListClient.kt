@@ -51,16 +51,30 @@ class AniListClient(
             put("variables", variables)
         }.toString()
 
-        val resp = http.newCall(
+        return parse(post(body))
+    }
+
+    /** One show by AniList id, with fresh airing info (saved shows are snapshots and go stale). */
+    fun byId(id: Int): AniListMedia? {
+        val body = buildJsonObject {
+            put("query", BY_ID_QUERY)
+            put("variables", buildJsonObject { put("id", id) })
+        }.toString()
+        val resp = post(body)
+        if (resp.isBlank()) return null
+        val root = runCatching { json.parseToJsonElement(resp).jsonObject }.getOrNull() ?: return null
+        val media = root["data"]?.jsonObject?.get("Media") as? JsonObject ?: return null
+        return runCatching { media.toMedia() }.getOrNull()
+    }
+
+    private fun post(body: String): String =
+        http.newCall(
             Request.Builder().url(ENDPOINT)
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
                 .post(body.toRequestBody(mediaType))
                 .build()
         ).execute().use { it.body?.string().orEmpty() }
-
-        return parse(resp)
-    }
 
     private fun parse(resp: String): List<AniListMedia> {
         if (resp.isBlank()) return emptyList()
@@ -91,6 +105,7 @@ class AniListClient(
             coverImage = this["coverImage"]?.jsonObject?.let { it.str("extraLarge") ?: it.str("large") },
             bannerImage = this.str("bannerImage"),
             coverColor = this["coverImage"]?.jsonObject?.str("color"),
+            nextAiringEpisode = (this["nextAiringEpisode"] as? JsonObject)?.get("episode")?.jsonPrimitive?.intOrNull(),
         )
     }
 
@@ -106,17 +121,31 @@ class AniListClient(
     companion object {
         private const val ENDPOINT = "https://graphql.anilist.co"
 
-        private val QUERY = """
-            query (${'$'}search: String, ${'$'}sort: [MediaSort], ${'$'}genre: String, ${'$'}perPage: Int) {
-              Page(perPage: ${'$'}perPage) {
-                media(search: ${'$'}search, sort: ${'$'}sort, genre: ${'$'}genre, type: ANIME, isAdult: false) {
+        /** Fields every query asks for (kept in one place so list and by-id results match). */
+        private const val MEDIA_FIELDS = """
                   id idMal
                   title { romaji english native }
                   synonyms episodes format status seasonYear averageScore genres duration
                   description(asHtml: false)
                   coverImage { extraLarge large color }
                   bannerImage
+                  nextAiringEpisode { episode }
+        """
+
+        private val QUERY = """
+            query (${'$'}search: String, ${'$'}sort: [MediaSort], ${'$'}genre: String, ${'$'}perPage: Int) {
+              Page(perPage: ${'$'}perPage) {
+                media(search: ${'$'}search, sort: ${'$'}sort, genre: ${'$'}genre, type: ANIME, isAdult: false) {
+                  $MEDIA_FIELDS
                 }
+              }
+            }
+        """.trimIndent()
+
+        private val BY_ID_QUERY = """
+            query (${'$'}id: Int) {
+              Media(id: ${'$'}id, type: ANIME) {
+                  $MEDIA_FIELDS
               }
             }
         """.trimIndent()
